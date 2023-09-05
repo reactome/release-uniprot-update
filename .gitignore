@@ -1,0 +1,10 @@
+# IntelliJ Files
+.idea/
+*.iml
+
+# Compiled Code
+target/
+
+# Misc.
+*.sql
+*.sql.gz
