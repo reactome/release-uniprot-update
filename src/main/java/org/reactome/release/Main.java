@@ -64,20 +64,6 @@ public class Main {
             port
         );
 
-        //String updateDirectory = getUpdateDirectory();
-
-//        String trEMBLFilePath = Files.list(Paths.get(updateDirectory))
-//            .filter(path -> path.toString().contains("uniprot-reviewed"))
-//            .map(Path::toString)
-//            .findFirst()
-//            .orElseThrow(() -> new RuntimeException("Can't find TrEMBL file uniprot-reviewed_no.list[.gz]"));
-//
-//        if (trEMBLFilePath.endsWith(".gz")) {
-//            System.out.println("Found TrEMBL file with .gz extension - unzipping");
-//            gunzipOrThrow(trEMBLFilePath);
-//            //trEMBLFilePath = trEMBLFilePath.replace(".gz","");
-//        }
-
         String sprotFilePath = Files.list(Paths.get(Utils.getUpdateDirectory()))
             .filter(path -> path.toString().contains("uniprot_sprot.xml"))
             .map(Path::toString)
@@ -155,7 +141,6 @@ public class Main {
                 }
 
                 String organismName = matchSingleValue(entry, "<name type=\"scientific\">(.*?)</name>");
-                //System.out.println("Organism name: " + organismName);
                 String taxon = "";
                 Map<String, GKInstance> speciesNameToInstanceCache = new HashMap<>();
                 GKInstance speciesInstance = null;
@@ -177,15 +162,12 @@ public class Main {
                 accessions.add(0, id);
                 String description = matchSingleValue(entry, "<protein(.*)</protein>");
 
-                //System.out.println(description);
-
                 String fullName = matchSingleValue(description, "<recommendedName>\\s+<fullName>(.*?)</fullName>");
                 if (fullName.isEmpty()) {
                     fullName = matchSingleValue(description, "<recommendedName ref=\"\\d+\">\\s+<fullName>(.*)</fullName>");
                 }
-                //System.out.println("Full name: " + fullName);
                 String recommendedName = !fullName.isEmpty() ? fullName : "No name";
-                //System.out.println("Recommended name: " + recommendedName);
+
                 description =
                     description
                     .replaceAll("</fullName>","")
@@ -208,13 +190,12 @@ public class Main {
                     .replaceAll("^\\s+","")
                     .replaceAll("\\s+$","");
 
-                //System.out.println("Description: " + description);
 
                 Integer sequenceLength = Integer.parseInt(
                     matchSingleValue(entry, "<sequence.*length=\"(\\d+)\""));
-                //System.out.println("Sequence length: " + sequenceLength);
+
                 String checksum = matchSingleValue(entry, "<sequence.*checksum=\"([0-9A-F]+)\"");
-                //System.out.println("Checksum: " + checksum);
+
                 List<String> geneNames = matchMultipleValues(entry, "<gene>(.*?)</gene>").stream().flatMap(
                     geneName -> Arrays.stream(geneName
                         .replaceAll("</name>","")
@@ -222,10 +203,7 @@ public class Main {
                         .replaceAll(" {2}", "")
                         .split("\\n")
                     )
-                    //.skip(1)
                 ).collect(Collectors.toList());
-
-                //System.out.println("Gene names: " + geneNames);
 
                 String name = !geneNames.isEmpty() &&!geneNames.get(0).isEmpty() ?
                     geneNames.get(0) :
@@ -247,8 +225,7 @@ public class Main {
                             String.join("\t", primaryAccession, name, uniqueEnsEMBLGeneIds.toString()) + "\n");
                     }
                     GKInstance humanEnsEMBLGeneReferenceDatabase = getHumanEnsEMBLGeneReferenceDatabase(dba);
-                    //System.out.println(uniqueEnsEMBLGeneIds);
-                    //System.out.println(uniqueEnsEMBLGeneIds.size());
+
                     for (String ensEMBLGeneId : uniqueEnsEMBLGeneIds) {
                         GKInstance referenceDNASequence;
 
@@ -336,13 +313,13 @@ public class Main {
                     }
                 }
                 List<String> keywords = matchMultipleValues(entry, "<keyword id=\".*?\">(.*?)</keyword>");
-                //System.out.println("Keywords: " + keywords);
+
                 String comments = parseComments(entry);
-                //System.out.println("Comments: " + comments);
+
                 List<String> isoformIds = matchMultipleValues(entry, "<isoform>\\s*<id>([A-Z0-9-]*)");
-                //System.out.println("Isoform ids: " + isoformIds);
+
                 List<String> chains = parseChains(entry);
-                //System.out.println("Chains: " + chains);
+
                 Map<String,List<?>> values = new HashMap<>();
                 values.put(ReactomeJavaConstants.secondaryIdentifier, accessions);
                 values.put(ReactomeJavaConstants.description, Collections.singletonList(description));
@@ -468,7 +445,6 @@ public class Main {
                                         isoformId, isoformDbId, existingReferenceGeneProductInstance.getDBID()));
 
                                     updateInstance(isoformInstance, values, sequenceReportWriter);
-                                    //numberOfNewIsoformInstances += 1;
                                 }
                             } else {
                                 misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
@@ -565,7 +541,6 @@ public class Main {
 
         System.out.println("Deleting obsolete instances with no referrers...");
 
-        //for (String rgpAccession : rgpAccessionToDbId.keySet()) {
         Iterator<String> rgpAccessionsIterator = rgpAccessionToDbId.keySet().iterator();
         while (rgpAccessionsIterator.hasNext()) {
             String rgpAccession = rgpAccessionsIterator.next();
@@ -641,7 +616,6 @@ public class Main {
             }
 
             Collection<GKInstance> referrers = getRGPReferrers(isoformInstance);
-                //isoformInstance.getReferers(ReactomeJavaConstants.referenceEntity);
             if (referrers == null || referrers.isEmpty()) {
                 System.out.println("Deleting " + obsoleteIsoformDbId + "...");
                 dba.deleteByDBID(obsoleteIsoformDbId);
@@ -715,9 +689,6 @@ public class Main {
                             ReactomeJavaConstants.variantIdentifier);
                     }
 
-//
-//                        String variantIdentifier =
-//                            (String) obsoleteRGPInstance.getAttributeValue(ReactomeJavaConstants.variantIdentifier);
                     if (variantIdentifier != null) {
                         continue;
                     }
