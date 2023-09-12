@@ -164,7 +164,8 @@ public class Main {
 
                 String fullName = matchSingleValue(description, "<recommendedName>\\s+<fullName>(.*?)</fullName>");
                 if (fullName.isEmpty()) {
-                    fullName = matchSingleValue(description, "<recommendedName ref=\"\\d+\">\\s+<fullName>(.*)</fullName>");
+                    fullName = matchSingleValue(description,
+                        "<recommendedName ref=\"\\d+\">\\s+<fullName>(.*)</fullName>");
                 }
                 String recommendedName = !fullName.isEmpty() ? fullName : "No name";
 
@@ -189,7 +190,6 @@ public class Main {
                     .replaceAll("type=\"fragments?\"","")
                     .replaceAll("^\\s+","")
                     .replaceAll("\\s+$","");
-
 
                 Integer sequenceLength = Integer.parseInt(
                     matchSingleValue(entry, "<sequence.*length=\"(\\d+)\""));
@@ -240,8 +240,9 @@ public class Main {
                                 referenceDNASequence.getAttributeValue(ReactomeJavaConstants.referenceDatabase);
                             boolean isUpdateToReferenceDNASequence = false;
                             if (existingRDSReferenceDatabase == null ||
-                                !existingRDSReferenceDatabase.getDBID().equals(humanEnsEMBLGeneReferenceDatabase.getDBID())) {
-                                referenceDNASequence.addAttributeValue(ReactomeJavaConstants.referenceDatabase, humanEnsEMBLGeneReferenceDatabase);
+                                !sameDbId(existingRDSReferenceDatabase, humanEnsEMBLGeneReferenceDatabase)) {
+                                referenceDNASequence.addAttributeValue(
+                                    ReactomeJavaConstants.referenceDatabase, humanEnsEMBLGeneReferenceDatabase);
                                 isUpdateToReferenceDNASequence = true;
                             }
 
@@ -254,7 +255,9 @@ public class Main {
                             GKInstance existingSpeciesInstance = (GKInstance)
                                 referenceDNASequence.getAttributeValue(ReactomeJavaConstants.species);
                             if (existingSpeciesInstance == null ||
-                                (speciesInstance != null && !existingSpeciesInstance.getDBID().equals(speciesInstance.getDBID()))) {
+                                (speciesInstance != null &&
+                                !existingSpeciesInstance.getDBID().equals(speciesInstance.getDBID()))) {
+
                                 referenceDNASequence.addAttributeValue(ReactomeJavaConstants.species, speciesInstance);
                                 isUpdateToReferenceDNASequence = true;
                             }
@@ -340,8 +343,10 @@ public class Main {
                     GKInstance newReferenceGeneProductInstance =
                         new GKInstance(dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceGeneProduct));
                     newReferenceGeneProductInstance.setDbAdaptor(dba);
-                    newReferenceGeneProductInstance.setAttributeValue(ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
-                    newReferenceGeneProductInstance.setAttributeValue(ReactomeJavaConstants.identifier, primaryAccession);
+                    newReferenceGeneProductInstance.setAttributeValue(
+                        ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
+                    newReferenceGeneProductInstance.setAttributeValue(
+                        ReactomeJavaConstants.identifier, primaryAccession);
                     newReferenceGeneProductInstance.setAttributeValue(ReactomeJavaConstants.created, instanceEdit);
                     long newRGPDbId = dba.storeInstance(newReferenceGeneProductInstance);
 
@@ -352,11 +357,14 @@ public class Main {
                             misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
                         }
 
-                        GKInstance newIsoformInstance = new GKInstance(dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceIsoform));
+                        GKInstance newIsoformInstance = new GKInstance(
+                            dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceIsoform));
                         newIsoformInstance.setDbAdaptor(dba);
-                        newIsoformInstance.setAttributeValue(ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
+                        newIsoformInstance.setAttributeValue(
+                            ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
                         newIsoformInstance.setAttributeValue(ReactomeJavaConstants.identifier, primaryAccession);
-                        newIsoformInstance.setAttributeValue(ReactomeJavaConstants.isoformParent, newReferenceGeneProductInstance);
+                        newIsoformInstance.setAttributeValue(
+                            ReactomeJavaConstants.isoformParent, newReferenceGeneProductInstance);
                         newIsoformInstance.setAttributeValue(ReactomeJavaConstants.created, instanceEdit);
                         newIsoformInstance.setAttributeValue(ReactomeJavaConstants.variantIdentifier, isoformId);
 
@@ -371,8 +379,7 @@ public class Main {
                     );
                     boolean duplicateFlag = false;
                     for (GKInstance existingReferenceGeneProductInstance : existingReferenceGeneProductInstances) {
-                        if (existingReferenceGeneProductInstance.getSchemClass()
-                            .isa(ReactomeJavaConstants.ReferenceIsoform)) {
+                        if (isAReferenceIsoform(existingReferenceGeneProductInstance)) {
                             continue;
                         }
 
@@ -559,7 +566,7 @@ public class Main {
                 boolean isObsoleteRGPDeleted = false;
                 for (GKInstance obsoleteReferenceGeneProductInstance : obsoleteReferenceGeneProductInstances) {
                     String variantIdentifier = null;
-                    if (obsoleteReferenceGeneProductInstance.getSchemClass().isa(ReactomeJavaConstants.ReferenceIsoform)) {
+                    if (isAReferenceIsoform(obsoleteReferenceGeneProductInstance)) {
                         variantIdentifier = (String) obsoleteReferenceGeneProductInstance.getAttributeValue(
                             ReactomeJavaConstants.variantIdentifier);
                     }
@@ -684,7 +691,7 @@ public class Main {
                 );
                 for (GKInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                     String variantIdentifier = null;
-                    if (obsoleteRGPInstance.getSchemClass().isa(ReactomeJavaConstants.ReferenceIsoform)) {
+                    if (isAReferenceIsoform(obsoleteRGPInstance)) {
                         variantIdentifier = (String) obsoleteRGPInstance.getAttributeValue(
                             ReactomeJavaConstants.variantIdentifier);
                     }
@@ -765,7 +772,7 @@ public class Main {
 
             for (GKInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                 String variantIdentifier = null;
-                if (obsoleteRGPInstance.getSchemClass().isa(ReactomeJavaConstants.ReferenceIsoform)) {
+                if (isAReferenceIsoform(obsoleteRGPInstance)) {
                     variantIdentifier = (String) obsoleteRGPInstance.getAttributeValue(
                         ReactomeJavaConstants.variantIdentifier);
                 }
@@ -1122,6 +1129,10 @@ public class Main {
         return validUniProtIdLengths.contains(potentialUniProtId.length());
     }
 
+    private boolean isAReferenceIsoform(GKInstance rgpInstance) {
+        return rgpInstance.getSchemClass().isa(ReactomeJavaConstants.ReferenceIsoform);
+    }
+
     private GKInstance getSpeciesInstance(MySQLAdaptor dba, String speciesName, Map<String, GKInstance> speciesCache)
         throws Exception {
 
@@ -1158,6 +1169,10 @@ public class Main {
 
     private GKInstance fetchReferenceDNASequenceByDbId(MySQLAdaptor dba, long referenceDNASequenceDbId) throws Exception {
         return dba.fetchInstance(referenceDNASequenceDbId);
+    }
+
+    private boolean sameDbId(GKInstance instance1, GKInstance instance2) {
+        return instance1.getDBID().equals(instance2.getDBID());
     }
 
     private boolean areDifferentLists(List<?> list1, List<?> list2) {
