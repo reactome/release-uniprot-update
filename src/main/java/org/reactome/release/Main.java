@@ -653,8 +653,8 @@ public class Main {
         );
 
         wikiWriter.write(
-        "{| class=\"wikitable\"|+\n" +
-            "Obsolete UniProt Instances (with replacement UniProt)\n" +
+        "{| class=\"wikitable\"\n" +
+            "|+ Obsolete UniProt Instances (with replacement UniProt)\n" +
             "|-\n" +
             "! Replacement UniProt\n" +
             "! Obsolete UniProt\n" +
@@ -713,21 +713,21 @@ public class Main {
                     if (!referrerDbIds.isEmpty()) {
                         StringBuilder reportLineBuilder = new StringBuilder();
                         for (String alternateAccession : alternateAccessions) {
-                            reportLineBuilder.append(String.format("|[https://www.uniprot.org/uniprot/%s %s]",
+                            reportLineBuilder.append(String.format("|[https://www.uniprot.org/uniprot/%s %s]\n",
                                 alternateAccession, alternateAccession));
                             System.out.println(String.format("%s\t%s\t%s",
                                 rgpAccession, alternateAccession, obsoleteDbId));
                         }
-                        reportLineBuilder.append(String.format("|\n%s\n|", rgpAccession));
+                        reportLineBuilder.append(String.format("|%s\n", rgpAccession));
                         reportLineBuilder.append(String.format(
-                            "[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n|",
+                            "|[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n",
                             dba.getDBName(), obsoleteDbId, obsoleteDbId
                             ));
-                        reportLineBuilder.append(String.format("|%s\n|", String.join(
+                        reportLineBuilder.append(String.format("||%s\n", String.join(
                             "|", referrerDbIds.stream().map(Object::toString).collect(Collectors.toList())
                         )));
-                        reportLineBuilder.append(speciesName);
-                        reportLineBuilder.append("\n|-\n");
+                        reportLineBuilder.append("|" + speciesName + "\n");
+                        reportLineBuilder.append("|-\n");
 
                         String reportLine = reportLineBuilder.toString();
                         if (skipList.stream().anyMatch(accession -> accession.equals(rgpAccession))) {
@@ -803,17 +803,17 @@ public class Main {
             System.out.println(rgpAccession);
             if (!referrerIds.isEmpty()) {
                 StringBuilder reportLineBuilder = new StringBuilder();
-                reportLineBuilder.append("|\n|");
-                reportLineBuilder.append(String.format("|%s\n|", rgpAccession));
+                //reportLineBuilder.append("|\n");
+                reportLineBuilder.append(String.format("||%s\n", rgpAccession));
                 reportLineBuilder.append(String.format(
-                    "[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n|",
+                    "|[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n",
                     dba.getDBName(), obsoleteDbId, obsoleteDbId
                 ));
-                reportLineBuilder.append(String.format("|%s\n|", String.join(
+                reportLineBuilder.append(String.format("||%s\n", String.join(
                     "|", referrerIds.stream().map(Object::toString).collect(Collectors.toList())
                 )));
-                reportLineBuilder.append(speciesName);
-                reportLineBuilder.append("\n|-\n");
+                reportLineBuilder.append(String.format("|%s\n", speciesName));
+                reportLineBuilder.append("|-\n");
 
                 String reportLine = reportLineBuilder.toString();
                 if (skipList.stream().anyMatch(accession -> accession.equals(rgpAccession))) {
@@ -857,17 +857,17 @@ public class Main {
 
                 if (!referrerIds.isEmpty()) {
                     StringBuilder reportLineBuilder = new StringBuilder();
-                    reportLineBuilder.append("|\n|");
-                    reportLineBuilder.append(String.format("|%s\n|", isoformAccession));
+                    //reportLineBuilder.append("|\n");
+                    reportLineBuilder.append(String.format("||%s\n", isoformAccession));
                     reportLineBuilder.append(String.format(
-                        "[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n|",
+                        "|[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n",
                         dba.getDBName(), isoformInstanceDbId, isoformInstanceDbId
                     ));
-                    reportLineBuilder.append(String.format("|%s\n|", String.join(
+                    reportLineBuilder.append(String.format("||%s\n", String.join(
                         "|", referrerIds.stream().map(Object::toString).collect(Collectors.toList())
                     )));
-                    reportLineBuilder.append(speciesName);
-                    reportLineBuilder.append("\n|-\n");
+                    reportLineBuilder.append(String.format("|%s\n", speciesName));
+                    reportLineBuilder.append("|-\n");
 
                     String reportLine = reportLineBuilder.toString();
                     if (skipList.stream().anyMatch(accession -> accession.equals(isoformAccession))) {
