@@ -712,9 +712,18 @@ public class Main {
 
                     if (!referrerDbIds.isEmpty()) {
                         StringBuilder reportLineBuilder = new StringBuilder();
+                        reportLineBuilder.append("||");
+                        reportLineBuilder.append(String.join("|",
+                            alternateAccessions
+                                .stream()
+                                .map(
+                                    alternateAccession ->
+                                    String.format("[https://www.uniprot.org/uniprot/%s %s]",
+                                        alternateAccession, alternateAccession))
+                                .collect(Collectors.toList())
+                          ));
+                        reportLineBuilder.append("\n");
                         for (String alternateAccession : alternateAccessions) {
-                            reportLineBuilder.append(String.format("|[https://www.uniprot.org/uniprot/%s %s]\n",
-                                alternateAccession, alternateAccession));
                             System.out.println(String.format("%s\t%s\t%s",
                                 rgpAccession, alternateAccession, obsoleteDbId));
                         }
