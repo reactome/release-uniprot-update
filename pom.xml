@@ -6,7 +6,7 @@
 
     <groupId>org.reactome</groupId>
     <artifactId>uniprot-verbatim</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 
     <dependencies>
 
@@ -19,7 +19,7 @@
         <dependency>
             <groupId>org.reactome.base</groupId>
             <artifactId>reactome-base-core</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
+            <version>1.0.0</version>
         </dependency>
 
         <dependency>
