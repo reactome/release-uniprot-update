@@ -1,7 +1,5 @@
 package org.reactome.release;
 
-import com.beust.jcommander.JCommander;
-import com.beust.jcommander.Parameter;
 import org.gk.model.GKInstance;
 import org.gk.model.InstanceDisplayNameGenerator;
 import org.gk.model.ReactomeJavaConstants;
@@ -9,10 +7,12 @@ import org.gk.persistence.MySQLAdaptor;
 
 import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.SQLException;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -29,42 +29,22 @@ import static org.reactome.release.Utils.isTrEMBLId;
  *         Created 7/31/2023
  */
 public class Main {
-    @Parameter(names={"--user", "-u"})
-    private String user;
-
-    @Parameter(names={"--pass", "-p"})
-    private String password;
-
-    @Parameter(names={"--host", "-h"})
-    private String host = "localhost";
-
-    @Parameter(names={"--port", "-P"})
-    private int port = 3306;
-
-    @Parameter(names={"--db", "-d"})
-    private String dbName;
 
     public static void main(String[] args) throws Exception {
         Main main = new Main();
-        JCommander.newBuilder()
-            .addObject(main)
-            .build()
-            .parse(args);
 
-        main.run();
+        String configFilePathAsString = args.length > 0 ? args[0] : getDefaultConfigFilePath().toString();
+        Properties configProperties = getConfigProperties(configFilePathAsString);
+
+        main.run(configProperties);
     }
 
     @SuppressWarnings("unchecked")
-    private void run() throws Exception {
-        MySQLAdaptor dba = new MySQLAdaptor(
-            host,
-            dbName,
-            user,
-            password,
-            port
-        );
+    private void run(Properties configProperties) throws Exception {
+        MySQLAdaptor dba = getDbAdaptor(configProperties);
 
-        String sprotFilePath = Files.list(Paths.get(Utils.getUpdateDirectory()))
+        Path updateDirectoryPath = Paths.get(configProperties.getProperty("updateDirectory"));
+        String sprotFilePath = Files.list(updateDirectoryPath)
             .filter(path -> path.toString().contains("uniprot_sprot.xml"))
             .map(Path::toString)
             .findFirst()
@@ -101,14 +81,13 @@ public class Main {
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
 
-        List<String> skipList = getSkipList(Paths.get(Utils.getUpdateDirectory()));
+        List<String> skipList = getSkipList(updateDirectoryPath);
 
         BufferedReader swissProtReader = Files.newBufferedReader(Paths.get(sprotFilePath));
         BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
-            Paths.get(Utils.getUpdateDirectory(), "sequence_uniprot_report.txt"));
+            updateDirectoryPath.resolve( "sequence_uniprot_report.txt"));
         BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
-            Paths.get(Utils.getUpdateDirectory(), "reference_DNA_sequence_report.txt")
-        );
+            updateDirectoryPath.resolve("reference_DNA_sequence_report.txt"));
 
         String line;
         StringBuilder entryBuilder = new StringBuilder();
@@ -133,7 +112,6 @@ public class Main {
 
                 List<String> accessions = matchMultipleValues(entry, "<accession>(.*?)</accession>");
                 String primaryAccession = accessions.remove(0);
-                //System.out.println("Primary accession " + primaryAccession);
                 accessionToSecondaryAccessionList.put(primaryAccession, new ArrayList<>(accessions));
                 for (String secondaryAccession : accessions) {
                     secondaryAccessionToPrimaryAccessionList.computeIfAbsent(
@@ -648,9 +626,7 @@ public class Main {
         List<String> skipReplaceableReportLines = new ArrayList<>();
         List<String> skipNoReplacementReportLines = new ArrayList<>();
 
-        BufferedWriter wikiWriter = Files.newBufferedWriter(
-            Paths.get(Utils.getUpdateDirectory(), "uniprot.wiki")
-        );
+        BufferedWriter wikiWriter = Files.newBufferedWriter(updateDirectoryPath.resolve( "uniprot.wiki"));
 
         wikiWriter.write(
         "{| class=\"wikitable\"\n" +
@@ -974,6 +950,26 @@ public class Main {
         System.out.println("Total SwissProt instances in file: " + numberOfInstancesInSwissProtFile);
         System.out.println("Obsolete instances with no referrers: " + numberOfObsoleteInstancesWithNoEWAS);
         System.out.println("Number of new SwissProt instances: " + numberOfNewSwissProtInstances);
+    }
+
+    private static Path getDefaultConfigFilePath() throws URISyntaxException {
+        return Paths.get(Main.class.getClassLoader().getResource("config.properties").toURI());
+    }
+
+    private static Properties getConfigProperties(String configFilePathAsString) throws IOException {
+        Properties configProperties = new Properties();
+        configProperties.load(Files.newInputStream(Paths.get(configFilePathAsString)));
+        return configProperties;
+    }
+
+    private MySQLAdaptor getDbAdaptor(Properties configProperties) throws SQLException {
+        return new MySQLAdaptor(
+            configProperties.getProperty("host", "localhost"),
+            configProperties.getProperty("dbName"),
+            configProperties.getProperty("user", "root"),
+            configProperties.getProperty("password", "root"),
+            Integer.parseInt(configProperties.getProperty("port", "3306"))
+        );
     }
 
     private void gunzipOrThrow(String filePath) throws IOException {
