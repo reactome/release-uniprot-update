@@ -4,6 +4,9 @@ import org.gk.model.GKInstance;
 import org.gk.model.InstanceDisplayNameGenerator;
 import org.gk.model.ReactomeJavaConstants;
 import org.gk.persistence.MySQLAdaptor;
+import org.reactome.release.reports.DuplicateAccessionReport;
+import org.reactome.release.reports.Reportable;
+import org.reactome.release.reports.TrEMBLAccessionReport;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -517,21 +520,15 @@ public class Main {
 
         System.out.println("Remaining instances:" + rgpAccessionToDbId.keySet().size());
 
-        BufferedWriter trEMBLWriter = Files.newBufferedWriter(
-            Paths.get(Utils.getUpdateDirectory(), "trembl_to_update.acc")
-        );
-        BufferedWriter duplicateDbIDWriter = Files.newBufferedWriter(
-            Paths.get(Utils.getUpdateDirectory(), "duplicated_db_id.txt")
-        );
-
         System.out.println("Deleting obsolete instances with no referrers...");
 
         Iterator<String> rgpAccessionsIterator = rgpAccessionToDbId.keySet().iterator();
+        List<String> tremblAccessions = new ArrayList<>();
         while (rgpAccessionsIterator.hasNext()) {
             String rgpAccession = rgpAccessionsIterator.next();
 
             if (isTrEMBLId(rgpAccession)) {
-                trEMBLWriter.write(rgpAccession + "\n");
+                tremblAccessions.add(rgpAccession);
                 rgpAccessionsIterator.remove();
             } else {
                 Collection<GKInstance> obsoleteReferenceGeneProductInstances = dba.fetchInstanceByAttribute(
@@ -567,6 +564,8 @@ public class Main {
                 }
             }
         }
+        Reportable trEMBLAccessionReport = new TrEMBLAccessionReport(updateDirectoryPath, tremblAccessions);
+        trEMBLAccessionReport.writeReport();
 
         List<Long> dbIdsToSkip = new ArrayList<>();
         Iterator<String> isoformAccessionIterator = isoformAccessionToDbId.keySet().iterator();
@@ -609,19 +608,13 @@ public class Main {
             }
         }
         System.out.println("Done.");
-        trEMBLWriter.close();
 
         System.out.println("Preparing reports...");
         Set<Long> noReferrerDbIds = new HashSet<>();
 
-        for (long duplicatedDbId : duplicateDbIdToReferenceGeneProductAccession.keySet()) {
-            String rgpDuplicateAccession = duplicateDbIdToReferenceGeneProductAccession.get(duplicatedDbId);
-            if (isTrEMBLId(rgpDuplicateAccession)) {
-                continue;
-            }
-            duplicateDbIDWriter.write(String.format("%s\t%s%n",rgpAccessionToDbId, duplicatedDbId));
-        }
-        duplicateDbIDWriter.close();
+        Reportable duplicateAccessionReport = new DuplicateAccessionReport(
+            updateDirectoryPath, duplicateDbIdToReferenceGeneProductAccession);
+        duplicateAccessionReport.writeReport();
 
         List<String> skipReplaceableReportLines = new ArrayList<>();
         List<String> skipNoReplacementReportLines = new ArrayList<>();
