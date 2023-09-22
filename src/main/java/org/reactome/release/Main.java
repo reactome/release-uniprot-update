@@ -22,7 +22,6 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
 
 import static org.reactome.release.Utils.emptyListIfNull;
 import static org.reactome.release.Utils.isTrEMBLId;
@@ -47,17 +46,6 @@ public class Main {
         MySQLAdaptor dba = getDbAdaptor(configProperties);
 
         Path updateDirectoryPath = Paths.get(configProperties.getProperty("updateDirectory"));
-        String sprotFilePath = Files.list(updateDirectoryPath)
-            .filter(path -> path.toString().contains("uniprot_sprot.xml"))
-            .map(Path::toString)
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("Can't find SwissProt file uniprot_sprot.xml[.gz]"));
-
-        if (sprotFilePath.endsWith(".gz")) {
-            System.out.println("Found SwissProt file with .gz extension - unzipping");
-            gunzipOrThrow(sprotFilePath);
-            sprotFilePath = sprotFilePath.replace(".gz","");
-        }
 
         GKInstance uniProtReferenceDatabase = getUniProtReferenceDatabase(dba);
         GKInstance instanceEdit = getInstanceEdit(dba, "UniProt Update on " + getTodaysDate());
@@ -86,7 +74,6 @@ public class Main {
 
         List<String> skipList = getSkipList(updateDirectoryPath);
 
-        BufferedReader swissProtReader = Files.newBufferedReader(Paths.get(sprotFilePath));
         BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
             updateDirectoryPath.resolve("sequence_uniprot_report.txt"));
         BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
@@ -97,7 +84,9 @@ public class Main {
 
         int recordCounter = 0;
 
-        while ((line = swissProtReader.readLine()) != null) {
+        SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(updateDirectoryPath);
+        BufferedReader swissProtFileReader = swissProtFileProcessor.getFileReader();
+        while ((line = swissProtFileReader.readLine()) != null) {
             entryBuilder.append(line);
 
             if (line.contains("</entry>")) {
@@ -447,10 +436,9 @@ public class Main {
 
         referenceDNASequenceReportWriter.close();
         sequenceReportWriter.close();
-        swissProtReader.close();
 
         System.out.println(recordCounter + " records processed and committed");
-        System.out.println("All records in " + sprotFilePath + " processed");
+        System.out.println("All records in " + swissProtFileProcessor.getSwissProtFilePath() + " processed");
 
         System.out.println("Starting clean-up tasks after processing UniProt XML");
         dba.startTransaction();
@@ -964,17 +952,6 @@ public class Main {
             configProperties.getProperty("password", "root"),
             Integer.parseInt(configProperties.getProperty("port", "3306"))
         );
-    }
-
-    private void gunzipOrThrow(String filePath) throws IOException {
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new FileInputStream(Paths.get(filePath).toFile()));
-             FileOutputStream unzipOutputStream = new FileOutputStream(filePath.replace(".gz",""))) {
-            byte[] buffer = new byte[1024];
-            int len;
-            while ((len = gzipInputStream.read(buffer)) > 0) {
-                unzipOutputStream.write(buffer, 0, len);
-            }
-        }
     }
 
     @SuppressWarnings("unchecked")
