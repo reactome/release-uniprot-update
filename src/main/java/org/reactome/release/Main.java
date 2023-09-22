@@ -88,7 +88,7 @@ public class Main {
 
         BufferedReader swissProtReader = Files.newBufferedReader(Paths.get(sprotFilePath));
         BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
-            updateDirectoryPath.resolve( "sequence_uniprot_report.txt"));
+            updateDirectoryPath.resolve("sequence_uniprot_report.txt"));
         BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
             updateDirectoryPath.resolve("reference_DNA_sequence_report.txt"));
 
@@ -620,7 +620,7 @@ public class Main {
         List<String> skipReplaceableReportLines = new ArrayList<>();
         List<String> skipNoReplacementReportLines = new ArrayList<>();
 
-        BufferedWriter wikiWriter = Files.newBufferedWriter(updateDirectoryPath.resolve( "uniprot.wiki"));
+        BufferedWriter wikiWriter = Files.newBufferedWriter(updateDirectoryPath.resolve("uniprot.wiki"));
 
         wikiWriter.write(
         "{| class=\"wikitable\"\n" +
