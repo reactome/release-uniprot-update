@@ -68,7 +68,6 @@ public class Main {
         System.out.println("Populating rds identifier to db id...");
         Map<String, Long> rdsIdentifierToDbId = getRDSIdentifierToDbIdMap(dba);
 
-        Map<String, List<String>> accessionToSecondaryAccessionList = new HashMap<>();
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
 
@@ -104,7 +103,6 @@ public class Main {
 
                 List<String> accessions = matchMultipleValues(entry, "<accession>(.*?)</accession>");
                 String primaryAccession = accessions.remove(0);
-                accessionToSecondaryAccessionList.put(primaryAccession, new ArrayList<>(accessions));
                 for (String secondaryAccession : accessions) {
                     secondaryAccessionToPrimaryAccessionList.computeIfAbsent(
                         secondaryAccession, k -> new ArrayList<>()).add(primaryAccession);
