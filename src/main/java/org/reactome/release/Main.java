@@ -178,13 +178,14 @@ public class Main {
                 String checksum = matchSingleValue(entry, "<sequence.*checksum=\"([0-9A-F]+)\"");
 
                 List<String> geneNames = matchMultipleValues(entry, "<gene>(.*?)</gene>").stream().flatMap(
-                    geneName -> Arrays.stream(geneName
+                    names -> Arrays.stream(names.trim().split("\\s{2,}")).map(geneName ->
+                        geneName
                         .replaceAll("</name>","")
-                        .replaceAll("<name.*\">","")
+                        .replaceAll("<name.*?>","")
                         .replaceAll(" {2}", "")
-                        .split("\\n")
                     )
-                ).collect(Collectors.toList());
+                ).distinct().collect(Collectors.toList());
+
 
                 String name = !geneNames.isEmpty() &&!geneNames.get(0).isEmpty() ?
                     geneNames.get(0) :
