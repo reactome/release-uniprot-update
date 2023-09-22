@@ -489,19 +489,8 @@ public class Main {
 
         System.out.println("Updating display names...");
 
-        Collection<GKInstance> referenceGeneProductInstances =
-            dba.fetchInstancesByClass(ReactomeJavaConstants.ReferenceGeneProduct);
-        for (GKInstance referenceGeneProductInstance : referenceGeneProductInstances) {
-            InstanceDisplayNameGenerator.setDisplayName(referenceGeneProductInstance);
-            dba.updateInstanceAttribute(referenceGeneProductInstance, ReactomeJavaConstants._displayName);
-        }
-
-        Collection<GKInstance> referenceIsoformInstances =
-            dba.fetchInstancesByClass(ReactomeJavaConstants.ReferenceIsoform);
-        for (GKInstance referenceIsoformInstance : referenceIsoformInstances) {
-            InstanceDisplayNameGenerator.setDisplayName(referenceIsoformInstance);
-            dba.updateInstanceAttribute(referenceIsoformInstance, ReactomeJavaConstants._displayName);
-        }
+        updateDisplayNames(dba, ReactomeJavaConstants.ReferenceGeneProduct);
+        updateDisplayNames(dba, ReactomeJavaConstants.ReferenceIsoform);
 
         System.out.println("Done");
 
@@ -1545,5 +1534,14 @@ public class Main {
         String chainEnd = matchSingleValue(featureContent, "<end position=\"(\\d+)");
 
         return featureType + ":" + chainStart + "-" + chainEnd;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void updateDisplayNames(MySQLAdaptor dba, String className) throws Exception {
+        Collection<GKInstance> instances = dba.fetchInstancesByClass(className);
+        for (GKInstance instance : instances) {
+            InstanceDisplayNameGenerator.setDisplayName(instance);
+            dba.updateInstanceAttribute(instance, ReactomeJavaConstants._displayName);
+        }
     }
 }
