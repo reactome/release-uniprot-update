@@ -20,7 +20,7 @@ public interface Reportable {
         Files.write(
             getFilePath(),
             getHeader().getBytes(),
-            StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING
+            StandardOpenOption.CREATE, StandardOpenOption.APPEND
         );
     }
 
