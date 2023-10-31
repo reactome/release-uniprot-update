@@ -15,6 +15,7 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.sql.SQLException;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -24,6 +25,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.reactome.release.Utils.emptyListIfNull;
+import static org.reactome.release.Utils.getUpdateDirectory;
 import static org.reactome.release.Utils.isTrEMBLId;
 
 /**
@@ -1257,7 +1259,44 @@ public class Main {
             }
 
             if (attributeName.toLowerCase().equals(ReactomeJavaConstants.chain)) {
-                updateChainLog(instance, (List<String>) newValuesForAttribute, sequenceReportWriter);
+                boolean chainChangeLogUpdated =
+                    updateChainLog(instance, (List<String>) newValuesForAttribute, sequenceReportWriter);
+                if (chainChangeLogUpdated) {
+                    List<GKInstance> ewasInstances = getAllEwasInstances(instance);
+
+
+                    for (GKInstance ewasInstance : ewasInstances) {
+                        reportChangedChainForEWASInstance(instance, ewasInstance);
+                    }
+                    /*
+                    Collection<GKInstance> allEwasInstances = new ArrayList<>();
+                    Collection<GKInstance> referenceEntityEwasInstances =
+                        instance.getReferers(ReactomeJavaConstants.referenceEntity);
+                    if (referenceEntityEwasInstances != null) {
+                        allEwasInstances.addAll(referenceEntityEwasInstances);
+                    }
+                    Collection<GKInstance> hasModifiedResidueInstances = new ArrayList<>();
+                    Collection<GKInstance> referenceSequenceModifiedResidues =
+                        instance.getReferers(ReactomeJavaConstants.referenceSequence);
+                    if (referenceSequenceModifiedResidues != null) {
+                        hasModifiedResidueInstances.addAll(referenceSequenceModifiedResidues);
+                    }
+
+                    Collection<GKInstance> secondReferenceSequenceModifiedResidues =
+                        instance.getReferers(ReactomeJavaConstants.secondReferenceSequence);
+                    if (secondReferenceSequenceModifiedResidues != null) {
+                        hasModifiedResidueInstances.addAll(secondReferenceSequenceModifiedResidues);
+                    }
+
+                    for (GKInstance hasModifiedResidueInstance : hasModifiedResidueInstances) {
+                        Collection<GKInstance> hasModifiedEwasInstances =
+                            hasModifiedResidueInstance.getReferers(ReactomeJavaConstants.hasModifiedResidue);
+                        if (hasModifiedEwasInstances != null) {
+                            allEwasInstances.addAll(hasModifiedEwasInstances);
+                        }
+                    }
+*/
+                }
             }
 
             if (valuesChanged(instance, attributeName, newValuesForAttribute)) {
@@ -1293,8 +1332,9 @@ public class Main {
     }
 
     @SuppressWarnings("unchecked")
-    private void updateChainLog(GKInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter)
+    private boolean updateChainLog(GKInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter)
         throws Exception {
+        boolean chainLogChanged = false;
 
         List<String> oldChainValues = instance.getAttributeValuesList(ReactomeJavaConstants.chain);
         String date = getCurrentDate();
@@ -1314,13 +1354,14 @@ public class Main {
 
                 instance.addAttributeValue("_chainChangeLog", fullLog);
                 System.out.println("old chain removed for " + instance.getDBID());
+                chainLogChanged = true;
             }
         }
 
         for (String newChainValue : newChainValues) {
             if (!oldChainValues.contains(newChainValue)) {
                 String logEntry = String.format("%s for %d added on %s", newChainValue, instance.getDBID(), date);
-                sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription);
+                sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
 
                 String existingLog = (String) instance.getAttributeValue("_chainChangeLog");
@@ -1331,8 +1372,10 @@ public class Main {
 
                 instance.addAttributeValue("_chainChangeLog", fullLog);
                 System.out.println("new chain added for " + instance.getDBID());
+                chainLogChanged = true;
             }
         }
+        return chainLogChanged;
     }
 
     private String getReferenceGeneProductDescription(GKInstance rgpInstance) throws Exception {
@@ -1542,6 +1585,84 @@ public class Main {
         for (GKInstance instance : instances) {
             InstanceDisplayNameGenerator.setDisplayName(instance);
             dba.updateInstanceAttribute(instance, ReactomeJavaConstants._displayName);
+        }
+    }
+
+    private List<GKInstance> getAllEwasInstances(GKInstance referenceGeneProduct) throws Exception {
+        List<GKInstance> allEwasInstances = new ArrayList<>();
+
+        Collection<GKInstance> referenceEntityEwasInstances =
+            referenceGeneProduct.getReferers(ReactomeJavaConstants.referenceEntity);
+        if (referenceEntityEwasInstances != null) {
+            allEwasInstances.addAll(referenceEntityEwasInstances);
+        }
+        Collection<GKInstance> hasModifiedResidueInstances = new ArrayList<>();
+        Collection<GKInstance> referenceSequenceModifiedResidues =
+            referenceGeneProduct.getReferers(ReactomeJavaConstants.referenceSequence);
+        if (referenceSequenceModifiedResidues != null) {
+            hasModifiedResidueInstances.addAll(referenceSequenceModifiedResidues);
+        }
+
+        Collection<GKInstance> secondReferenceSequenceModifiedResidues =
+            referenceGeneProduct.getReferers(ReactomeJavaConstants.secondReferenceSequence);
+        if (secondReferenceSequenceModifiedResidues != null) {
+            hasModifiedResidueInstances.addAll(secondReferenceSequenceModifiedResidues);
+        }
+
+        for (GKInstance hasModifiedResidueInstance : hasModifiedResidueInstances) {
+            Collection<GKInstance> hasModifiedEwasInstances =
+                hasModifiedResidueInstance.getReferers(ReactomeJavaConstants.hasModifiedResidue);
+            if (hasModifiedEwasInstances != null) {
+                allEwasInstances.addAll(hasModifiedEwasInstances);
+            }
+        }
+
+        return allEwasInstances;
+    }
+
+    private void reportChangedChainForEWASInstance(GKInstance referenceGeneProduct, GKInstance ewas)
+        throws Exception {
+        //"RGP db id\tRGP Accession\tEWAS db id\tEWAS name\tEWAS author (created or last modified)\t"
+        String reportLine = String.join("\t",
+            referenceGeneProduct.getDBID().toString(),
+            (String) referenceGeneProduct.getAttributeValue(ReactomeJavaConstants.identifier),
+            ewas.getDBID().toString(),
+            ewas.getDisplayName(),
+            getAuthor(ewas)
+        );
+
+        Files.write(
+            Paths.get("ewasCoordinatesReport.txt"),
+            reportLine.getBytes(),
+            StandardOpenOption.CREATE, StandardOpenOption.APPEND
+        );
+    }
+
+    private String getAuthor(GKInstance ewas) throws Exception {
+        GKInstance ewasCreatedInstanceEdit = (GKInstance) ewas.getAttributeValue(ReactomeJavaConstants.created);
+        if (ewasCreatedInstanceEdit != null) {
+            return getAuthorFromInstanceEdit(ewasCreatedInstanceEdit);
+        } else {
+            return getLastModifiedAuthor(ewas);
+        }
+    }
+
+    private String getLastModifiedAuthor(GKInstance ewas) throws Exception {
+        List<GKInstance> ewasModifiedInstanceEdits = ewas.getAttributeValuesList(ReactomeJavaConstants.modified);
+        if (ewasModifiedInstanceEdits != null && !ewasModifiedInstanceEdits.isEmpty()) {
+            GKInstance ewasMostRecentModifiedInstanceEdit = ewasModifiedInstanceEdits.get(0);
+            return getAuthorFromInstanceEdit(ewasMostRecentModifiedInstanceEdit);
+        } else {
+            return "Unknown author";
+        }
+    }
+
+    private String getAuthorFromInstanceEdit(GKInstance instanceEdit) throws Exception {
+        GKInstance instanceEditAuthor = (GKInstance) instanceEdit.getAttributeValue(ReactomeJavaConstants.author);
+        if (instanceEditAuthor != null) {
+            return instanceEditAuthor.getDisplayName();
+        } else {
+            return "Unknown author";
         }
     }
 }
