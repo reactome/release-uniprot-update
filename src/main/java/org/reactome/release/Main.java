@@ -1633,7 +1633,7 @@ public class Main {
             ewas.getDBID().toString(),
             ewas.getDisplayName(),
             getAuthor(ewas)
-        );
+        ).concat(System.lineSeparator());
 
         Files.write(
             Paths.get("ewasCoordinatesReport.txt"),
