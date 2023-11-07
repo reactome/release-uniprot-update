@@ -1122,7 +1122,7 @@ public class Main {
                 ReactomeJavaConstants.ReferenceDatabase,
                 ReactomeJavaConstants.name,
                 "=",
-                "ENSEMBL_Homo_sapiens_GENE"
+                "ENSEMBL"
             );
 
         if (ensEMBLHumanReferenceDatabaseInstances == null || ensEMBLHumanReferenceDatabaseInstances.isEmpty()) {
