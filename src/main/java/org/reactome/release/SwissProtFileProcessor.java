@@ -41,7 +41,7 @@ public class SwissProtFileProcessor {
      * @return <code>true</code> if file is gunzipped;<code>false</code> otherwise if unchanged
      */
     private boolean gunzipSwissProtFileIfZipped() throws IOException {
-        if (getSwissProtFilePath().endsWith(".gz")) {
+        if (getSwissProtFilePath().toString().endsWith(".gz")) {
             System.out.println("Found SwissProt file with .gz extension - unzipping");
             gunzipOrThrow(getSwissProtFilePath());
             this.swissProtFilePath = Paths.get(getSwissProtFilePath().toString().replace(".gz",""));
