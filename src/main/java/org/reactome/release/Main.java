@@ -1261,9 +1261,8 @@ public class Main {
             if (attributeName.toLowerCase().equals(ReactomeJavaConstants.chain)) {
                 boolean chainChangeLogUpdated =
                     updateChainLog(instance, (List<String>) newValuesForAttribute, sequenceReportWriter);
-                if (chainChangeLogUpdated) {
+                if (hasChains(instance) && chainChangeLogUpdated) {
                     List<GKInstance> ewasInstances = getAllEwasInstances(instance);
-
 
                     for (GKInstance ewasInstance : ewasInstances) {
                         reportChangedChainForEWASInstance(instance, ewasInstance);
@@ -1376,6 +1375,11 @@ public class Main {
             }
         }
         return chainLogChanged;
+    }
+
+    private boolean hasChains(GKInstance instance) throws Exception {
+        List<String> chainValues = instance.getAttributeValuesList(ReactomeJavaConstants.chain);
+        return chainValues != null && !chainValues.isEmpty();
     }
 
     private String getReferenceGeneProductDescription(GKInstance rgpInstance) throws Exception {
