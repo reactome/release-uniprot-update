@@ -935,11 +935,11 @@ public class Main {
 
     private MySQLAdaptor getDbAdaptor(Properties configProperties) throws SQLException {
         return new MySQLAdaptor(
-            configProperties.getProperty("host", "localhost"),
-            configProperties.getProperty("dbName"),
-            configProperties.getProperty("user", "root"),
-            configProperties.getProperty("password", "root"),
-            Integer.parseInt(configProperties.getProperty("port", "3306"))
+            configProperties.getProperty("curator.database.host", "localhost"),
+            configProperties.getProperty("curator.database.name"),
+            configProperties.getProperty("curator.database.user", "root"),
+            configProperties.getProperty("curator.database.password", "root"),
+            Integer.parseInt(configProperties.getProperty("curator.database.port", "3306"))
         );
     }
 
