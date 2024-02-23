@@ -649,8 +649,8 @@ public class Main {
                     obsoleteDbId = obsoleteRGPInstance.getDBID();
                     speciesName = getSpeciesName(obsoleteRGPInstance);
 
-                    List<GKInstance> referrers =
-                        (List<GKInstance>) obsoleteRGPInstance.getReferers(ReactomeJavaConstants.referenceEntity);
+                    List<GKInstance> referrers = emptyListIfNull((List<GKInstance>) obsoleteRGPInstance.getReferers(
+                        ReactomeJavaConstants.referenceEntity));
                     for (GKInstance referrer : referrers) {
                         if (referrer.getSchemClass().isa(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
                             referrerDbIds.add(referrer.getDBID());
