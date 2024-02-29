@@ -247,6 +247,7 @@ public class Main {
                                     rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n"
                                 );
                                 dba.loadInstanceAttributeValues(referenceDNASequence);
+                                InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
                                 referenceDNASequence.addAttributeValue(ReactomeJavaConstants.modified, instanceEdit);
                                 dba.updateInstance(referenceDNASequence);
                             }
@@ -278,6 +279,7 @@ public class Main {
                             referenceDNASequence.setAttributeValue(
                                 ReactomeJavaConstants.species, speciesInstance
                             );
+                            InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
                             long referenceDNASequenceDbId = dba.storeInstance(referenceDNASequence);
                             referenceDNASequenceReportWriter.write("Reference DNA sequence with db_id " +
                                 referenceDNASequenceDbId + " created for " + ensEMBLGeneId + "\n");
