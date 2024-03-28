@@ -1,7 +1,5 @@
 name: release-uniprot-update ci
 
-# test latest tagging
-
 on:
     workflow_dispatch:
     pull_request:
