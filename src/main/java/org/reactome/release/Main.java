@@ -7,6 +7,7 @@ import org.gk.persistence.MySQLAdaptor;
 import org.reactome.release.reports.DuplicateAccessionReport;
 import org.reactome.release.reports.Reportable;
 import org.reactome.release.reports.TrEMBLAccessionReport;
+import org.reactome.util.general.DBUtils;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -45,7 +46,7 @@ public class Main {
 
     @SuppressWarnings("unchecked")
     private void run(Properties configProperties) throws Exception {
-        MySQLAdaptor dba = getDbAdaptor(configProperties);
+        MySQLAdaptor dba = DBUtils.getCuratorDbAdaptor(configProperties);
 
         Path updateDirectoryPath = Paths.get(configProperties.getProperty("updateDirectory"));
 
@@ -933,16 +934,6 @@ public class Main {
         Properties configProperties = new Properties();
         configProperties.load(Files.newInputStream(Paths.get(configFilePathAsString)));
         return configProperties;
-    }
-
-    private MySQLAdaptor getDbAdaptor(Properties configProperties) throws SQLException {
-        return new MySQLAdaptor(
-            configProperties.getProperty("curator.database.host", "localhost"),
-            configProperties.getProperty("curator.database.name"),
-            configProperties.getProperty("curator.database.user", "root"),
-            configProperties.getProperty("curator.database.password", "root"),
-            Integer.parseInt(configProperties.getProperty("curator.database.port", "3306"))
-        );
     }
 
     @SuppressWarnings("unchecked")
