@@ -50,7 +50,7 @@ public class Main {
 
         List<String> skipList = getSkipList();
 
-        this.outputDirectoryPath = Paths.get(configProperties.getProperty("uniprotOutputDirectory"));
+        this.outputDirectoryPath = Paths.get(configProperties.getProperty("uniprotUpdateDirectory"));
 
         GKInstance uniProtReferenceDatabase = getUniProtReferenceDatabase(dba);
         GKInstance instanceEdit = getInstanceEdit(dba, "UniProt Update on " + getTodaysDate());
