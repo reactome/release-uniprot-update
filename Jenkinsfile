@@ -60,11 +60,11 @@ pipeline {
 		stage('Post: Email UniProt.wiki file'){
 			steps{
 				script{
-					def uniprotWikiFile = "uniprot.wiki"
+					def uniprotWikiFile = "updateDirectory/uniprot.wiki"
 
 					def releaseVersion = utils.getReleaseVersion();
 					def emailSubject = "UniProt Update Reports for v${releaseVersion}"
-					def emailBody = "Hello,\n\nThis is an automated message from Jenkins regarding an update for v${releaseVersion}. The UniProt Update step has completed. Please review the ${uniprotWikiFile} file attached to this email. If it looks correct, the contents of the file need to be uploaded to https://devwiki.reactome.org/index.php/Reports_Archive under 'UniProt Update Reports'. Please add the current UniProt wiki URL to the 'Archived reports' section of the page. If the file looks incorrect, please email the developer running Release. \n\nThanks!"
+					def emailBody = "Hello,\n\nThis is an automated message from Jenkins regarding an update for v${releaseVersion}. The UniProt Update step has been completed. Please review the ${uniprotWikiFile} file attached to this email. If it looks correct, the contents of the file need to be uploaded to https://devwiki.reactome.org/index.php/Reports_Archive under 'UniProt Update Reports'. Please add the current UniProt wiki URL to the 'Archived reports' section of the page. If the file looks incorrect, please email the developer running Release. \n\nThanks!"
 					utils.sendEmailWithAttachment("$emailSubject", "$emailBody", "$uniprotWikiFile")
 				}
 			}
@@ -79,20 +79,12 @@ pipeline {
 					sh "mkdir -p databases/ data/ logs/"
 
 					sh "mv --backup=numbered *_${releaseVersion}_*.dump.gz databases/"
-					sh "mv ewasCoordinatesReport.txt data/"
-					sh "mv sequence_uniprot_report.txt data/"
-					sh "mv reference_DNA_sequence_report.txt data/"
-					sh "mv duplicated_db_id.txt data/"
-					sh "mv trembl_to_update.acc data/"
-					sh "mv uniprot_sprot.xml data/"
-					sh "mv uniprot.wiki data/"
-					sh "mv uniprot.* logs/"
-
-					sh "gzip -r data/* logs/*"
+					sh "mv updateDirectory/* data/"
+					
+					sh "gzip -r data/*"
 					sh "aws s3 --no-progress --recursive cp databases/ $s3Path/databases/"
-					sh "aws s3 --no-progress --recursive cp logs/ $s3Path/logs/"
 					sh "aws s3 --no-progress --recursive cp data/ $s3Path/data/"
-					sh "rm -r databases logs data"
+					sh "rm -r databases data"
 				}
 			}
 		}
