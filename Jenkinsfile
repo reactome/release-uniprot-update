@@ -40,6 +40,7 @@ pipeline {
 		stage('Main: UniProt Update'){
 			steps {
 				script{
+					sh "mvn clean package -DskipTests"
 					withCredentials([file(credentialsId: 'Config', variable: 'ConfigFile')]){
 						sh "java -Xmx${env.JAVA_MEM_MAX}m -jar target/uniprot*-jar-with-dependencies.jar $ConfigFile"
 					}

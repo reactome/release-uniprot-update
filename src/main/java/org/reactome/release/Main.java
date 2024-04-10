@@ -17,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.sql.SQLException;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -26,14 +25,15 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.reactome.release.Utils.emptyListIfNull;
-import static org.reactome.release.Utils.getUpdateDirectory;
 import static org.reactome.release.Utils.isTrEMBLId;
+import static org.reactome.util.general.DBUtils.getCuratorDbAdaptor;
 
 /**
  * @author Joel Weiser (joel.weiser@oicr.on.ca)
  *         Created 7/31/2023
  */
 public class Main {
+    private Path uniprotUpdateDirectoryPath;
 
     public static void main(String[] args) throws Exception {
         Main main = new Main();
@@ -46,9 +46,11 @@ public class Main {
 
     @SuppressWarnings("unchecked")
     private void run(Properties configProperties) throws Exception {
-        MySQLAdaptor dba = DBUtils.getCuratorDbAdaptor(configProperties);
+        MySQLAdaptor dba = getCuratorDbAdaptor(configProperties);
 
-        Path updateDirectoryPath = Paths.get(configProperties.getProperty("updateDirectory"));
+        List<String> skipList = getSkipList();
+
+        this.uniprotUpdateDirectoryPath = Paths.get(configProperties.getProperty("uniprotUpdateDirectory"));
 
         GKInstance uniProtReferenceDatabase = getUniProtReferenceDatabase(dba);
         GKInstance instanceEdit = getInstanceEdit(dba, "UniProt Update on " + getTodaysDate());
@@ -74,19 +76,17 @@ public class Main {
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
 
-        List<String> skipList = getSkipList(updateDirectoryPath);
-
         BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
-            updateDirectoryPath.resolve("sequence_uniprot_report.txt"));
+            getUniprotUpdateDirectoryPath().resolve("sequence_uniprot_report.txt"));
         BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
-            updateDirectoryPath.resolve("reference_DNA_sequence_report.txt"));
+            getUniprotUpdateDirectoryPath().resolve("reference_DNA_sequence_report.txt"));
 
         String line;
         StringBuilder entryBuilder = new StringBuilder();
 
         int recordCounter = 0;
 
-        SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(updateDirectoryPath);
+        SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(getUniprotUpdateDirectoryPath());
         BufferedReader swissProtFileReader = swissProtFileProcessor.getFileReader();
         while ((line = swissProtFileReader.readLine()) != null) {
             entryBuilder.append(line);
@@ -248,6 +248,7 @@ public class Main {
                                     rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n"
                                 );
                                 dba.loadInstanceAttributeValues(referenceDNASequence);
+                                InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
                                 referenceDNASequence.addAttributeValue(ReactomeJavaConstants.modified, instanceEdit);
                                 dba.updateInstance(referenceDNASequence);
                             }
@@ -545,7 +546,7 @@ public class Main {
                 }
             }
         }
-        Reportable trEMBLAccessionReport = new TrEMBLAccessionReport(updateDirectoryPath, tremblAccessions);
+        Reportable trEMBLAccessionReport = new TrEMBLAccessionReport(getUniprotUpdateDirectoryPath(), tremblAccessions);
         trEMBLAccessionReport.writeReport();
 
         List<Long> dbIdsToSkip = new ArrayList<>();
@@ -594,13 +595,13 @@ public class Main {
         Set<Long> noReferrerDbIds = new HashSet<>();
 
         Reportable duplicateAccessionReport = new DuplicateAccessionReport(
-            updateDirectoryPath, duplicateDbIdToReferenceGeneProductAccession);
+            getUniprotUpdateDirectoryPath(), duplicateDbIdToReferenceGeneProductAccession);
         duplicateAccessionReport.writeReport();
 
         List<String> skipReplaceableReportLines = new ArrayList<>();
         List<String> skipNoReplacementReportLines = new ArrayList<>();
 
-        BufferedWriter wikiWriter = Files.newBufferedWriter(updateDirectoryPath.resolve("uniprot.wiki"));
+        BufferedWriter wikiWriter = Files.newBufferedWriter(getUniprotUpdateDirectoryPath().resolve("uniprot.wiki"));
 
         wikiWriter.write(
         "{| class=\"wikitable\"\n" +
@@ -652,8 +653,8 @@ public class Main {
                     obsoleteDbId = obsoleteRGPInstance.getDBID();
                     speciesName = getSpeciesName(obsoleteRGPInstance);
 
-                    List<GKInstance> referrers =
-                        (List<GKInstance>) obsoleteRGPInstance.getReferers(ReactomeJavaConstants.referenceEntity);
+                    List<GKInstance> referrers = emptyListIfNull((List<GKInstance>) obsoleteRGPInstance.getReferers(
+                        ReactomeJavaConstants.referenceEntity));
                     for (GKInstance referrer : referrers) {
                         if (referrer.getSchemClass().isa(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
                             referrerDbIds.add(referrer.getDBID());
@@ -936,6 +937,10 @@ public class Main {
         return configProperties;
     }
 
+    private Path getUniprotUpdateDirectoryPath() {
+        return this.uniprotUpdateDirectoryPath;
+    }
+
     @SuppressWarnings("unchecked")
     private GKInstance getUniProtReferenceDatabase(MySQLAdaptor dba) throws Exception {
         Collection<GKInstance> uniProtReferenceDatabaseInstances = dba.fetchInstanceByAttribute(
@@ -1064,10 +1069,11 @@ public class Main {
         return identifierToDbId;
     }
 
-    private List<String> getSkipList(Path updateDirectory) throws IOException {
+    private List<String> getSkipList() throws IOException, URISyntaxException {
         List<String> skipListIds = new ArrayList<>();
 
-        List<Path> skipListFilePaths = Files.list(updateDirectory)
+        Path resourcesDirectory = Paths.get(this.getClass().getClassLoader().getResource(".").toURI());
+        List<Path> skipListFilePaths = Files.list(resourcesDirectory)
             .filter(path -> path.getFileName().toString().startsWith("skiplist"))
             .collect(Collectors.toList());
 
@@ -1629,7 +1635,7 @@ public class Main {
         ).concat(System.lineSeparator());
 
         Files.write(
-            Paths.get("ewasCoordinatesReport.txt"),
+            getUniprotUpdateDirectoryPath().resolve("ewasCoordinatesReport.txt"),
             reportLine.getBytes(),
             StandardOpenOption.CREATE, StandardOpenOption.APPEND
         );
