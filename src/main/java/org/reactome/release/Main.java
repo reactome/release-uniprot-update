@@ -32,7 +32,7 @@ import static org.reactome.util.general.DBUtils.getCuratorDbAdaptor;
  *         Created 7/31/2023
  */
 public class Main {
-    private Path outputDirectoryPath;
+    private Path uniprotUpdateDirectoryPath;
 
     public static void main(String[] args) throws Exception {
         Main main = new Main();
@@ -50,7 +50,7 @@ public class Main {
 
         List<String> skipList = getSkipList();
 
-        this.outputDirectoryPath = Paths.get(configProperties.getProperty("uniprotUpdateDirectory"));
+        this.uniprotUpdateDirectoryPath = Paths.get(configProperties.getProperty("uniprotUpdateDirectory"));
 
         GKInstance uniProtReferenceDatabase = getUniProtReferenceDatabase(dba);
         GKInstance instanceEdit = getInstanceEdit(dba, "UniProt Update on " + getTodaysDate());
@@ -79,16 +79,16 @@ public class Main {
         //List<String> skipList = getSkipList();
 
         BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
-            getOutputDirectoryPath().resolve("sequence_uniprot_report.txt"));
+            getUniprotUpdateDirectoryPath().resolve("sequence_uniprot_report.txt"));
         BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
-            getOutputDirectoryPath().resolve("reference_DNA_sequence_report.txt"));
+            getUniprotUpdateDirectoryPath().resolve("reference_DNA_sequence_report.txt"));
 
         String line;
         StringBuilder entryBuilder = new StringBuilder();
 
         int recordCounter = 0;
 
-        SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(getOutputDirectoryPath());
+        SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(getUniprotUpdateDirectoryPath());
         BufferedReader swissProtFileReader = swissProtFileProcessor.getFileReader();
         while ((line = swissProtFileReader.readLine()) != null) {
             entryBuilder.append(line);
@@ -547,7 +547,7 @@ public class Main {
                 }
             }
         }
-        Reportable trEMBLAccessionReport = new TrEMBLAccessionReport(getOutputDirectoryPath(), tremblAccessions);
+        Reportable trEMBLAccessionReport = new TrEMBLAccessionReport(getUniprotUpdateDirectoryPath(), tremblAccessions);
         trEMBLAccessionReport.writeReport();
 
         List<Long> dbIdsToSkip = new ArrayList<>();
@@ -596,13 +596,13 @@ public class Main {
         Set<Long> noReferrerDbIds = new HashSet<>();
 
         Reportable duplicateAccessionReport = new DuplicateAccessionReport(
-            getOutputDirectoryPath(), duplicateDbIdToReferenceGeneProductAccession);
+            getUniprotUpdateDirectoryPath(), duplicateDbIdToReferenceGeneProductAccession);
         duplicateAccessionReport.writeReport();
 
         List<String> skipReplaceableReportLines = new ArrayList<>();
         List<String> skipNoReplacementReportLines = new ArrayList<>();
 
-        BufferedWriter wikiWriter = Files.newBufferedWriter(getOutputDirectoryPath().resolve("uniprot.wiki"));
+        BufferedWriter wikiWriter = Files.newBufferedWriter(getUniprotUpdateDirectoryPath().resolve("uniprot.wiki"));
 
         wikiWriter.write(
         "{| class=\"wikitable\"\n" +
@@ -938,8 +938,8 @@ public class Main {
         return configProperties;
     }
 
-    private Path getOutputDirectoryPath() {
-        return this.outputDirectoryPath;
+    private Path getUniprotUpdateDirectoryPath() {
+        return this.uniprotUpdateDirectoryPath;
     }
 
     @SuppressWarnings("unchecked")
@@ -1636,7 +1636,7 @@ public class Main {
         ).concat(System.lineSeparator());
 
         Files.write(
-            getOutputDirectoryPath().resolve("ewasCoordinatesReport.txt"),
+            getUniprotUpdateDirectoryPath().resolve("ewasCoordinatesReport.txt"),
             reportLine.getBytes(),
             StandardOpenOption.CREATE, StandardOpenOption.APPEND
         );
