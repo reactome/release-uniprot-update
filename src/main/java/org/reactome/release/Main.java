@@ -76,8 +76,6 @@ public class Main {
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
 
-        //List<String> skipList = getSkipList();
-
         BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
             getUniprotUpdateDirectoryPath().resolve("sequence_uniprot_report.txt"));
         BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
