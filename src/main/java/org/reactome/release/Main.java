@@ -1070,22 +1070,19 @@ public class Main {
     }
 
     private List<String> getSkipList() throws IOException, URISyntaxException {
+        final BufferedReader skipListWithNoReplacement = getSkipListFileBufferedReader("skiplist_no_replacement.txt");
+        final BufferedReader skipListWithReplacement = getSkipListFileBufferedReader("skiplist_with_replacement.txt");
+
         List<String> skipListIds = new ArrayList<>();
-
-        Path resourcesDirectory = Paths.get(this.getClass().getClassLoader().getResource(".").toURI());
-        List<Path> skipListFilePaths = Files.list(resourcesDirectory)
-            .filter(path -> path.getFileName().toString().startsWith("skiplist"))
-            .collect(Collectors.toList());
-
-        for (Path skipListFilePath :  skipListFilePaths) {
-            for (String uniProtIdToSkip : Files.readAllLines(skipListFilePath)) {
-                if (isValidUniProtId(uniProtIdToSkip)) {
-                    skipListIds.add(uniProtIdToSkip);
-                }
-            }
-        }
-
+        skipListIds.addAll(skipListWithNoReplacement.lines().filter(this::isValidUniProtId).collect(Collectors.toList()));
+        skipListIds.addAll(skipListWithReplacement.lines().filter(this::isValidUniProtId).collect(Collectors.toList()));
         return skipListIds;
+    }
+
+    private BufferedReader getSkipListFileBufferedReader(String skipListFileName) {
+        return new BufferedReader(new InputStreamReader(
+            this.getClass().getClassLoader().getResourceAsStream(skipListFileName)
+        ));
     }
 
     private boolean isValidUniProtId(String potentialUniProtId) {
