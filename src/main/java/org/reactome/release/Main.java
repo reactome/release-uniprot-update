@@ -7,6 +7,7 @@ import org.gk.persistence.MySQLAdaptor;
 import org.reactome.release.reports.DuplicateAccessionReport;
 import org.reactome.release.reports.Reportable;
 import org.reactome.release.reports.TrEMBLAccessionReport;
+import org.reactome.util.general.DBUtils;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -45,7 +46,6 @@ public class Main {
 
     @SuppressWarnings("unchecked")
     private void run(Properties configProperties) throws Exception {
-
         MySQLAdaptor dba = getCuratorDbAdaptor(configProperties);
 
         List<String> skipList = getSkipList();
@@ -281,6 +281,7 @@ public class Main {
                                 ReactomeJavaConstants.species, speciesInstance
                             );
                             InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
+
                             long referenceDNASequenceDbId = dba.storeInstance(referenceDNASequence);
                             referenceDNASequenceReportWriter.write("Reference DNA sequence with db_id " +
                                 referenceDNASequenceDbId + " created for " + ensEMBLGeneId + "\n");
