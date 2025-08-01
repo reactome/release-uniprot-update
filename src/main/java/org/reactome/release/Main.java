@@ -1143,16 +1143,7 @@ public class Main {
             return true;
         }
 
-        if (list1.size() != list2.size()) {
-            return true;
-        }
-
-        for (Object element1 : list1) {
-            if (!list2.contains(element1)) {
-                return true;
-            }
-        }
-        return false;
+        return !list1.equals(list2);
     }
 
     private boolean onEnsEMBLPrimaryAssembly(String ensEMBLGeneId) throws InterruptedException {
