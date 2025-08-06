@@ -106,6 +106,11 @@ public class Main {
 
                 List<String> accessions = matchMultipleValues(entry, "<accession>(.*?)</accession>");
                 String primaryAccession = accessions.remove(0);
+
+                if (!primaryAccession.equals("Q9HAE3")) {
+                    continue;
+                }
+                
                 for (String secondaryAccession : accessions) {
                     secondaryAccessionToPrimaryAccessionList.computeIfAbsent(
                         secondaryAccession, k -> new ArrayList<>()).add(primaryAccession);
