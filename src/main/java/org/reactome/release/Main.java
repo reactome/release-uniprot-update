@@ -1232,6 +1232,9 @@ public class Main {
         for (String attributeName : values.keySet()) {
             List<?> newValuesForAttribute =
                 values.get(attributeName).stream().filter(Objects::nonNull).collect(Collectors.toList());
+            
+            System.out.println("New values for attribute " + attributeName + ": " + newValuesForAttribute);
+            
             if (newValuesForAttribute.size() == 0) {
                 System.out.println("WARNING: No new values for " + attributeName + " on " + instance.getDBID() +
                     " skipping attribute update");
