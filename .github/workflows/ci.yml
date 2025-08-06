@@ -9,7 +9,8 @@ on:
     push:
         branches:
             - main
-
+            - test/list-value-updates
+            
 permissions:
     id-token: write
     contents: read
@@ -93,3 +94,4 @@ jobs:
                 docker push $AWS_URI:latest
                 docker tag $AWS_URI:latest $AWS_URI:$IMG_TAG
                 docker push $AWS_URI:$IMG_TAG
+
