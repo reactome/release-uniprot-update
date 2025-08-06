@@ -108,6 +108,7 @@ public class Main {
                 String primaryAccession = accessions.remove(0);
 
                 if (!primaryAccession.equals("Q9HAE3")) {
+                    System.out.println("Skipping " + primaryAccession);
                     continue;
                 }
                 
@@ -1290,6 +1291,11 @@ public class Main {
                 }
             }
 
+            if (attributeName.equals("geneName")) {
+                System.out.println("New Gene names: " + newValuesForAttribute);
+                System.out.println("Current Gene names: " + instance.getAttributeValuesList(attributeName));
+            }
+            
             if (valuesChanged(instance, attributeName, newValuesForAttribute)) {
                 if (isSingleAttribute(attributeName)) {
                     instance.setAttributeValue(attributeName, newValuesForAttribute.get(0));
