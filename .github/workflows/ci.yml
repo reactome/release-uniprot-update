@@ -56,7 +56,7 @@ jobs:
                 path: /tmp/image.tar
 
     docker-push:
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test/list-value-updates') }}
         needs: docker-build
         runs-on: ubuntu-latest
         steps:
@@ -94,4 +94,5 @@ jobs:
                 docker push $AWS_URI:latest
                 docker tag $AWS_URI:latest $AWS_URI:$IMG_TAG
                 docker push $AWS_URI:$IMG_TAG
+
 
