@@ -181,11 +181,13 @@ public class Main {
                         .replaceAll(" {2}", "")
                     )
                 ).distinct().collect(Collectors.toList());
-
+                System.out.println("Gene names for " + primaryAccession + ": " + geneNames);
 
                 String name = !geneNames.isEmpty() &&!geneNames.get(0).isEmpty() ?
                     geneNames.get(0) :
                     recommendedName;
+
+                System.out.println("Name for " + primaryAccession + ": " + name);
 
                 List<GKInstance> referenceDNASequences = new ArrayList<>();
                 if (taxon.contains("Homo sapiens")) {
