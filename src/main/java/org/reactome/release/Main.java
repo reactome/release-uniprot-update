@@ -1559,7 +1559,7 @@ public class Main {
     }
 
     private String parseInitiatorMethionineChain(String featureContent) {
-        String position = matchSingleValue(featureContent, "<location>\\n\\s+<position position=\"(\\d+)\"");
+        String position = matchSingleValue(featureContent, "<location.*?>\\s+<position position=\"(\\d+)\"");
         return "initiator methionine:" + position;
     }
 
