@@ -207,6 +207,7 @@ public class Main {
 
                             long rdsDbId = rdsIdentifierToDbId.get(ensEMBLGeneId);
                             referenceDNASequence = fetchReferenceDNASequenceByDbId(dba, rdsDbId);
+                            dba.loadInstanceAttributeValues(referenceDNASequence);
 
                             GKInstance existingRDSReferenceDatabase = (GKInstance)
                                 referenceDNASequence.getAttributeValue(ReactomeJavaConstants.referenceDatabase);
@@ -247,7 +248,6 @@ public class Main {
                                     "Updating existing reference DNA sequence for " + ensEMBLGeneId + " with db_id " +
                                     rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n"
                                 );
-                                dba.loadInstanceAttributeValues(referenceDNASequence);
                                 InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
                                 referenceDNASequence.addAttributeValue(ReactomeJavaConstants.modified, instanceEdit);
                                 dba.updateInstance(referenceDNASequence);
