@@ -1407,9 +1407,9 @@ public class Main {
 
         System.out.println(String.format("%s changed for instance %d", attributeName, instance.getDBID()));
         System.out.println(String.format("old attribute values - %s",
-            currentValuesToCompare.stream().map(Object::toString).sorted().collect(Collectors.joining(","))));
+            currentValuesToCompare.stream().map(Object::toString).collect(Collectors.joining(","))));
         System.out.println(String.format("new attribute values - %s",
-            newValuesToCompare.stream().map(Object::toString).sorted().collect(Collectors.joining(","))));
+            newValuesToCompare.stream().map(Object::toString).collect(Collectors.joining(","))));
 
         return true;
     }
