@@ -601,6 +601,9 @@ public class Main {
         List<String> skipReplaceableReportLines = new ArrayList<>();
         List<String> skipNoReplacementReportLines = new ArrayList<>();
 
+        List<String> plantReplaceableReportLines = new ArrayList<>();
+        List<String> plantNoReplacementReportLines = new ArrayList<>();
+
         BufferedWriter wikiWriter = Files.newBufferedWriter(getUniprotUpdateDirectoryPath().resolve("uniprot.wiki"));
 
         wikiWriter.write(
@@ -692,6 +695,8 @@ public class Main {
                         String reportLine = reportLineBuilder.toString();
                         if (skipList.stream().anyMatch(accession -> accession.equals(rgpAccession))) {
                             skipReplaceableReportLines.add(reportLine);
+                        } else if (isPlantReportLine(reportLine)) {
+                            plantReplaceableReportLines.add(reportLine);
                         } else {
                             wikiWriter.write(reportLine);
                         }
@@ -778,6 +783,8 @@ public class Main {
                 String reportLine = reportLineBuilder.toString();
                 if (skipList.stream().anyMatch(accession -> accession.equals(rgpAccession))) {
                     skipNoReplacementReportLines.add(reportLine);
+                } else if (isPlantReportLine(reportLine)) {
+                    plantNoReplacementReportLines.add(reportLine);
                 } else {
                     wikiWriter.write(reportLine);
                 }
@@ -841,6 +848,42 @@ public class Main {
             }
         }
 
+
+        wikiWriter.write("|}\n-----\n");
+
+        wikiWriter.write(
+            "{| class=\"wikitable\"\n" +
+                "|+ PLANT Obsolete UniProt Instances (with replacement UniProt)\n" +
+                "|-\n" +
+                "! Replacement UniProt\n" +
+                "! Obsolete UniProt\n" +
+                "! Reactome instances with obsolete UniProt\n" +
+                "! EWAS associated with obsolete UniProt\n" +
+                "! Species\n" +
+                "|-\n"
+        );
+
+        for (String plantReplaceableReportLine : plantReplaceableReportLines) {
+            wikiWriter.append(plantReplaceableReportLine);
+        }
+
+        wikiWriter.write("|}\n-----\n");
+
+        wikiWriter.write(
+            "{| class=\"wikitable\"\n" +
+                "|+ PLANT Obsolete UniProt Instances (deleted forever, no replacement)\n" +
+                "|-\n" +
+                "! Obsolete UniProt\n" +
+                "! Reactome instances with obsolete UniProt\n" +
+                "! EWAS associated with obsolete UniProt\n" +
+                "! Species\n" +
+                "|-\n"
+        );
+
+        for (String plantNoReplacementReportLine : plantNoReplacementReportLines) {
+            wikiWriter.append(plantNoReplacementReportLine);
+        }
+
         wikiWriter.write("|}\n-----\n");
 
         wikiWriter.write(
@@ -875,6 +918,7 @@ public class Main {
         for (String skipNoReplacementLine : skipNoReplacementReportLines) {
             wikiWriter.append(skipNoReplacementLine);
         }
+
         wikiWriter.write("|}\n");
         wikiWriter.close();
 
@@ -1655,5 +1699,10 @@ public class Main {
         } else {
             return "Unknown author";
         }
+    }
+
+    private boolean isPlantReportLine(String reportLine) {
+        final List<String> plantSpeciesNames = Arrays.asList("Arabidopsis thaliana", "Oryza sativa");
+        return plantSpeciesNames.stream().anyMatch(reportLine::contains);
     }
 }
