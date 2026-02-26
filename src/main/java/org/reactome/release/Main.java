@@ -839,6 +839,8 @@ public class Main {
                     String reportLine = reportLineBuilder.toString();
                     if (skipList.stream().anyMatch(accession -> accession.equals(isoformAccession))) {
                         skipNoReplacementReportLines.add(reportLine);
+                    } else if (isPlantReportLine(reportLine)) {
+                        plantNoReplacementReportLines.add(reportLine);
                     } else {
                         wikiWriter.write(reportLine);
                     }
