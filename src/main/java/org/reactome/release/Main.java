@@ -155,8 +155,7 @@ public class Main {
                     .replaceAll("^\\s+","")
                     .replaceAll("\\s+$","");
 
-                Integer sequenceLength = Integer.parseInt(
-                    matchSingleValue(entry, "<sequence.*length=\"(\\d+)\""));
+                Integer sequenceLength = parseSequenceLength(entry, primaryAccession);
 
                 String checksum = matchSingleValue(entry, "<sequence.*checksum=\"([0-9A-F]+)\"");
 
@@ -1287,6 +1286,23 @@ public class Main {
             identifierWithoutVersionNumber = identifier;
         }
         return identifierWithoutVersionNumber;
+    }
+
+    /**
+     * Returns null when the entry has no parsable sequence length. updateInstance skips a null attribute value with a
+     * warning, so one malformed entry costs its sequence length rather than failing the whole run.
+     *
+     * @param entry - the UniProt XML entry to parse.
+     * @param accession - the entry's primary accession, for the warning message.
+     * @return the sequence length, or null if the entry has none.
+     */
+    private Integer parseSequenceLength(String entry, String accession) {
+        String sequenceLength = matchSingleValue(entry, "<sequence.*length=\"(\\d+)\"");
+        if (sequenceLength.isEmpty()) {
+            System.out.println("WARNING: No sequence length found for " + accession);
+            return null;
+        }
+        return Integer.valueOf(sequenceLength);
     }
 
     private String parseComments(String entry) {
