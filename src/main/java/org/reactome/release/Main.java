@@ -259,9 +259,9 @@ public class Main {
                                 isUpdateToReferenceDNASequence = true;
                             }
 
-                            List<String> existingGeneNames = (List<String>)
-                                referenceDNASequence.getAttribute(ReactomeJavaConstants.geneName);
-                            if (existingGeneNames == null || areDifferentLists(existingGeneNames, geneNames)) {
+                            List<Object> existingGeneNames =
+                                getAttributeValues(referenceDNASequence, ReactomeJavaConstants.geneName);
+                            if (areDifferentLists(existingGeneNames, geneNames)) {
                                 referenceDNASequence.setAttribute(ReactomeJavaConstants.geneName, geneNames);
                                 isUpdateToReferenceDNASequence = true;
                             }
