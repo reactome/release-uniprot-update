@@ -112,10 +112,13 @@ public class Main {
                     if (organismName.contains(speciesName)) {
                         taxon = speciesName;
                         speciesInstance = curatorToolAPI.getSpeciesInstance(taxon);
+                        // The first matching species name wins; without stopping here a later match would replace it
+                        // and each match would cost another species query.
+                        break;
                     }
                 }
 
-                if (taxon.length() < 2 && !rgpAccessionToDbId.containsKey(primaryAccession)) {
+                if (speciesInstance == null && !rgpAccessionToDbId.containsKey(primaryAccession)) {
                     continue;
                 }
 
