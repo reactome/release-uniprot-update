@@ -931,7 +931,7 @@ public class Main {
     }
 
     private String getCurrentDate() {
-        return ZonedDateTime.now().format(DateTimeFormatter.ofPattern("EEE MMM dd YYYY"));
+        return ZonedDateTime.now().format(DateTimeFormatter.ofPattern("EEE MMM dd yyyy"));
     }
 
     private Map<Integer, String> getTaxonIdToSpeciesName() {
