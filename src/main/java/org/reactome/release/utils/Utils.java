@@ -11,7 +11,10 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+
+import org.reactome.curation.model.SimpleInstance;
 
 /**
  * @author Joel Weiser (joel.weiser@oicr.on.ca)
@@ -44,6 +47,35 @@ public class Utils {
                 return false;
             }
         }
+    }
+
+    /**
+     * SimpleInstance holds a single-valued attribute as the value itself, a multi-valued attribute as a List, and
+     * returns null for an attribute with no value, so every read is normalized to a list here.
+     *
+     * @param instance - the instance to read the attribute from.
+     * @param attributeName - the name of the attribute to read.
+     * @return the attribute's values, empty if it has none.
+     */
+    public static List<Object> getAttributeValues(SimpleInstance instance, String attributeName) {
+        Object value = instance.getAttribute(attributeName);
+        if (value == null) {
+            return Collections.emptyList();
+        }
+        return value instanceof List ? new ArrayList<>((List<?>) value) : Collections.singletonList(value);
+    }
+
+    /**
+     * Returns the attribute's first value as a String, for a single-valued String attribute or where only the first
+     * value of a multi-valued attribute is wanted (e.g. the gene name used in a display name).
+     *
+     * @param instance - the instance to read the attribute from.
+     * @param attributeName - the name of the attribute to read.
+     * @return the attribute's first value as a String, or null if it has no values.
+     */
+    public static String getFirstAttributeValueAsString(SimpleInstance instance, String attributeName) {
+        List<Object> values = getAttributeValues(instance, attributeName);
+        return values.isEmpty() ? null : values.get(0).toString();
     }
 
     public static <E> List<E> emptyListIfNull(List<E> list) {
