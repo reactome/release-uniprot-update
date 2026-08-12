@@ -1194,6 +1194,20 @@ public class Main {
         return oldChecksum != null && newChecksum != null && !oldChecksum.equals(newChecksum);
     }
 
+    /**
+     * Records each chain value added to, or removed from, the instance in the sequence report and reports whether
+     * there was anything to record.
+     *
+     * The entries used to also be appended to the instance's own "_chainChangeLog" attribute. No class in the
+     * graph-core model hierarchy has that slot, so curator-tool-ws could not find a set method for it and dropped the
+     * value on every commit (logging "Cannot find a set method for _chainChangeLog" as it did so): the log has only
+     * ever reached the sequence report. Persisting it again means adding the attribute to graph-core first.
+     *
+     * @param instance - the instance whose chain values are being replaced.
+     * @param newChainValues - the chain values parsed from the UniProt entry.
+     * @param sequenceReportWriter - the writer for the sequence report.
+     * @return true if any chain value was added or removed, false if the chain values are unchanged.
+     */
     @SuppressWarnings("unchecked")
     private boolean updateChainLog(SimpleInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter)
         throws Exception {
@@ -1212,13 +1226,6 @@ public class Main {
                 String logEntry = String.format("%s for %d removed on %s", oldChainValue, instance.getDbId(), date);
                 sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
-                String existingLog = (String) instance.getAttribute("_chainChangeLog");
-                String fullLog =
-                    existingLog != null ?
-                    existingLog + ";" + logEntry :
-                    logEntry;
-
-                instance.setAttribute("_chainChangeLog", fullLog);
                 System.out.println("old chain removed for " + instance.getDbId());
                 chainLogChanged = true;
             }
@@ -1229,14 +1236,6 @@ public class Main {
                 String logEntry = String.format("%s for %d added on %s", newChainValue, instance.getDbId(), date);
                 sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
-
-                String existingLog = (String) instance.getAttribute("_chainChangeLog");
-                String fullLog =
-                    existingLog != null ?
-                        existingLog + ";" + logEntry :
-                        logEntry;
-
-                instance.setAttribute("_chainChangeLog", fullLog);
                 System.out.println("new chain added for " + instance.getDbId());
                 chainLogChanged = true;
             }
