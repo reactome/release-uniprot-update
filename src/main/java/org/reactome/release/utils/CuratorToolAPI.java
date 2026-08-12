@@ -296,12 +296,22 @@ public class CuratorToolAPI {
 
     public void updateReferenceGeneProductDisplayNames() {
         for (SimpleInstance rgpInstance : fetchUniProtRGPInstances()) {
-            String currentDisplayName = rgpInstance.getDisplayName();
-            String newDisplayName = getReferenceSequenceDisplayName(rgpInstance);
+            // A search returns shell instances -- dbId, displayName and schemaClass only -- so the instance has to be
+            // inflated before there are any attributes to build a display name out of. Committing a shell would also
+            // clear every attribute of the stored instance, since a commit replaces all of them.
+            SimpleInstance inflatedRGPInstance = inflate(rgpInstance);
+            if (inflatedRGPInstance == null) {
+                logger.warn("No instance found for db id " + rgpInstance.getDbId() +
+                    " -- skipping its display name update");
+                continue;
+            }
 
-            if (!currentDisplayName.equals(newDisplayName)) {
-                rgpInstance.setDisplayName(newDisplayName);
-                commit(rgpInstance);
+            String currentDisplayName = inflatedRGPInstance.getDisplayName();
+            String newDisplayName = getReferenceSequenceDisplayName(inflatedRGPInstance);
+
+            if (!newDisplayName.equals(currentDisplayName)) {
+                inflatedRGPInstance.setDisplayName(newDisplayName);
+                commit(inflatedRGPInstance);
             }
         }
 
