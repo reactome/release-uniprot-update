@@ -139,6 +139,10 @@ public class Main {
                 recordCounter += 1;
 
                 List<String> accessions = matchMultipleValues(entry, "<accession>(.*?)</accession>");
+                if (accessions.isEmpty()) {
+                    System.out.println("WARNING: No accession in record " + recordCounter + " -- skipping it");
+                    continue;
+                }
                 String primaryAccession = accessions.remove(0);
                 for (String secondaryAccession : accessions) {
                     secondaryAccessionToPrimaryAccessionList.computeIfAbsent(
