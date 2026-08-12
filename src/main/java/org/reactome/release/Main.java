@@ -32,18 +32,58 @@ import static org.reactome.release.utils.Utils.isTrEMBLId;
 public class Main {
     private Path uniprotUpdateDirectoryPath;
 
+    // Held as fields, rather than as locals of run, so that close can release them whether or not the run completed:
+    // an unclosed report writer loses whatever is still sitting in its buffer, and the curator tool API holds a Spring
+    // context whose threads keep the JVM alive.
+    private CuratorToolAPI curatorToolAPI;
+    private BufferedReader swissProtFileReader;
+    private BufferedWriter sequenceReportWriter;
+    private BufferedWriter referenceDNASequenceReportWriter;
+    private BufferedWriter wikiWriter;
+
     public static void main(String[] args) throws Exception {
         Main main = new Main();
 
         String configFilePathAsString = args.length > 0 ? args[0] : getDefaultConfigFilePath().toString();
         Properties configProperties = getConfigProperties(configFilePathAsString);
 
-        main.run(configProperties);
+        try {
+            main.run(configProperties);
+        } finally {
+            main.close();
+        }
+    }
+
+    /**
+     * Closes everything the run opened, whether or not it completed. Each resource is closed independently so that one
+     * failure to close does not keep the others open or replace the exception that ended the run.
+     */
+    private void close() {
+        closeQuietly(swissProtFileReader, "SwissProt file reader");
+        closeQuietly(sequenceReportWriter, "sequence report writer");
+        closeQuietly(referenceDNASequenceReportWriter, "reference DNA sequence report writer");
+        closeQuietly(wikiWriter, "wiki report writer");
+
+        if (curatorToolAPI != null) {
+            curatorToolAPI.close();
+        }
+    }
+
+    private void closeQuietly(Closeable resource, String resourceDescription) {
+        if (resource == null) {
+            return;
+        }
+
+        try {
+            resource.close();
+        } catch (IOException e) {
+            System.err.println("Unable to close the " + resourceDescription + ": " + e.getMessage());
+        }
     }
 
     @SuppressWarnings("unchecked")
     private void run(Properties configProperties) throws Exception {
-        CuratorToolAPI curatorToolAPI = new CuratorToolAPI(Long.parseLong(configProperties.getProperty("personId")));
+        curatorToolAPI = new CuratorToolAPI(Long.parseLong(configProperties.getProperty("personId")));
 
         List<String> skipList = getSkipList();
 
@@ -72,9 +112,9 @@ public class Main {
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
 
-        BufferedWriter sequenceReportWriter = Files.newBufferedWriter(
+        sequenceReportWriter = Files.newBufferedWriter(
             getUniprotUpdateDirectoryPath().resolve("sequence_uniprot_report.txt"));
-        BufferedWriter referenceDNASequenceReportWriter = Files.newBufferedWriter(
+        referenceDNASequenceReportWriter = Files.newBufferedWriter(
             getUniprotUpdateDirectoryPath().resolve("reference_DNA_sequence_report.txt"));
 
         String line;
@@ -83,7 +123,7 @@ public class Main {
         int recordCounter = 0;
 
         SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(getUniprotUpdateDirectoryPath());
-        BufferedReader swissProtFileReader = swissProtFileProcessor.getFileReader();
+        swissProtFileReader = swissProtFileProcessor.getFileReader();
         while ((line = swissProtFileReader.readLine()) != null) {
             entryBuilder.append(line);
 
@@ -554,7 +594,7 @@ public class Main {
         List<String> plantReplaceableReportLines = new ArrayList<>();
         List<String> plantNoReplacementReportLines = new ArrayList<>();
 
-        BufferedWriter wikiWriter = Files.newBufferedWriter(getUniprotUpdateDirectoryPath().resolve("uniprot.wiki"));
+        wikiWriter = Files.newBufferedWriter(getUniprotUpdateDirectoryPath().resolve("uniprot.wiki"));
 
         wikiWriter.write(
         "{| class=\"wikitable\"\n" +
