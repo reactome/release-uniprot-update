@@ -386,6 +386,9 @@ public class Main {
                                     isoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier,
                                         isoformId);
                                     long isoformDbId = curatorToolAPI.commit(isoformInstance).getDbId();
+                                    // As with a new ReferenceGeneProduct above, updateInstance commits this instance
+                                    // a second time, so it is re-read first.
+                                    isoformInstance = curatorToolAPI.refresh(isoformInstance);
 
                                     System.out.println(String.format("New isoform: %s\t%d\tMaster: %d",
                                         isoformId, isoformDbId, existingReferenceGeneProductInstance.getDbId()));
