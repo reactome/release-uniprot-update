@@ -567,10 +567,6 @@ public class Main {
                 }
                 isSecondaryAccession = true;
 
-                long obsoleteDbId;
-                List<Long> referrerDbIds = new ArrayList<>();
-                String speciesName;
-
                 List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
                 for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                     String variantIdentifier = null;
@@ -582,8 +578,11 @@ public class Main {
                     if (variantIdentifier != null) {
                         continue;
                     }
-                    obsoleteDbId = obsoleteRGPInstance.getDbId();
-                    speciesName = getSpeciesName(obsoleteRGPInstance);
+                    // Declared per instance: two instances can share an accession, and each one gets its own report
+                    // line, so referrers must not carry over from the instance before it.
+                    long obsoleteDbId = obsoleteRGPInstance.getDbId();
+                    List<Long> referrerDbIds = new ArrayList<>();
+                    String speciesName = getSpeciesName(obsoleteRGPInstance);
 
                     List<SimpleInstance> referrers = emptyListIfNull(
                         curatorToolAPI.getReferrers(obsoleteRGPInstance, ReactomeJavaConstants.referenceEntity)
@@ -630,7 +629,10 @@ public class Main {
                         } else {
                             wikiWriter.write(reportLine);
                         }
-                    } else {
+                    } else if (getRGPReferrers(curatorToolAPI, obsoleteRGPInstance).isEmpty()) {
+                        // The report lists EWAS referrers only, but the instances collected here are deleted further
+                        // down, so an instance is only added once nothing at all refers to it -- the same check the
+                        // first round of deletions makes.
                         noReferrerDbIds.add(obsoleteDbId);
                     }
                 }
@@ -654,9 +656,7 @@ public class Main {
         );
 
         for (String rgpAccession : rgpAccessionToDbId.keySet()) {
-            long obsoleteDbId = -1L;
-            List<String> referrerIds = new ArrayList<>();
-            String speciesName = "";
+            System.out.println(rgpAccession);
 
             List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
 
@@ -670,8 +670,13 @@ public class Main {
                 if (variantIdentifier != null) {
                     continue;
                 }
-                obsoleteDbId = obsoleteRGPInstance.getDbId();
-                speciesName = getSpeciesName(obsoleteRGPInstance);
+                // Declared per instance: two instances can share an accession, and each one gets its own report
+                // line, so referrers must not carry over from the instance before it. Declaring them here also
+                // means no report line and no deletion for an accession whose instances are all isoforms, where
+                // there is no obsolete dbId to report or delete.
+                long obsoleteDbId = obsoleteRGPInstance.getDbId();
+                List<String> referrerIds = new ArrayList<>();
+                String speciesName = getSpeciesName(obsoleteRGPInstance);
 
                 List<SimpleInstance> referrers =
                     curatorToolAPI.getReferrers(obsoleteRGPInstance, ReactomeJavaConstants.referenceEntity);
@@ -688,33 +693,35 @@ public class Main {
                         }
                     }
                 }
-            }
 
-            System.out.println(rgpAccession);
-            if (!referrerIds.isEmpty()) {
-                StringBuilder reportLineBuilder = new StringBuilder();
-                //reportLineBuilder.append("|\n");
-                reportLineBuilder.append(String.format("||%s\n", rgpAccession));
-                reportLineBuilder.append(String.format(
-                    "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
-                    obsoleteDbId, obsoleteDbId
-                ));
-                reportLineBuilder.append(String.format("||%s\n", String.join(
-                    "|", referrerIds.stream().map(Object::toString).collect(Collectors.toList())
-                )));
-                reportLineBuilder.append(String.format("|%s\n", speciesName));
-                reportLineBuilder.append("|-\n");
+                if (!referrerIds.isEmpty()) {
+                    StringBuilder reportLineBuilder = new StringBuilder();
+                    //reportLineBuilder.append("|\n");
+                    reportLineBuilder.append(String.format("||%s\n", rgpAccession));
+                    reportLineBuilder.append(String.format(
+                        "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                        obsoleteDbId, obsoleteDbId
+                    ));
+                    reportLineBuilder.append(String.format("||%s\n", String.join(
+                        "|", referrerIds.stream().map(Object::toString).collect(Collectors.toList())
+                    )));
+                    reportLineBuilder.append(String.format("|%s\n", speciesName));
+                    reportLineBuilder.append("|-\n");
 
-                String reportLine = reportLineBuilder.toString();
-                if (skipList.stream().anyMatch(accession -> accession.equals(rgpAccession))) {
-                    skipNoReplacementReportLines.add(reportLine);
-                } else if (isPlantReportLine(reportLine)) {
-                    plantNoReplacementReportLines.add(reportLine);
-                } else {
-                    wikiWriter.write(reportLine);
+                    String reportLine = reportLineBuilder.toString();
+                    if (skipList.stream().anyMatch(accession -> accession.equals(rgpAccession))) {
+                        skipNoReplacementReportLines.add(reportLine);
+                    } else if (isPlantReportLine(reportLine)) {
+                        plantNoReplacementReportLines.add(reportLine);
+                    } else {
+                        wikiWriter.write(reportLine);
+                    }
+                } else if (getRGPReferrers(curatorToolAPI, obsoleteRGPInstance).isEmpty()) {
+                    // The report lists EWAS referrers only, but the instances collected here are deleted further
+                    // down, so an instance is only added once nothing at all refers to it -- the same check the
+                    // first round of deletions makes.
+                    noReferrerDbIds.add(obsoleteDbId);
                 }
-            } else {
-                noReferrerDbIds.add(obsoleteDbId);
             }
         }
 
@@ -764,7 +771,10 @@ public class Main {
                     } else {
                         wikiWriter.write(reportLine);
                     }
-                } else {
+                } else if (getRGPReferrers(curatorToolAPI, isoformInstance).isEmpty()) {
+                    // The report lists EWAS referrers only, but the instances collected here are deleted further
+                    // down, so an instance is only added once nothing at all refers to it -- the same check the
+                    // first round of deletions makes.
                     noReferrerDbIds.add(isoformInstanceDbId);
                 }
             }
@@ -846,16 +856,16 @@ public class Main {
 
         System.out.println("\nDeleting DBID with obsolete UniProt and no referrers (2nd round during wiki report)...");
 
-        NEXT:for (long noReferrerDbId : noReferrerDbIds) {
-            for (long dbIdToSkip : dbIdsToSkip) {
-                if (noReferrerDbId == dbIdToSkip) {
-                    continue NEXT;
-                }
-
-                //dba.deleteByDBID(noReferrerDbId);
-                System.out.println("Deleting DBID: " + noReferrerDbId);
-                curatorToolAPI.deleteByDbId(noReferrerDbId);
+        // The skip check is a condition on the delete, not a loop around it: nesting the delete inside a loop over
+        // dbIdsToSkip deleted nothing at all when that list was empty, and deleted each dbId once per non-matching
+        // entry when it was not.
+        for (Long noReferrerDbId : noReferrerDbIds) {
+            if (dbIdsToSkip.contains(noReferrerDbId)) {
+                continue;
             }
+
+            System.out.println("Deleting DBID: " + noReferrerDbId);
+            curatorToolAPI.deleteByDbId(noReferrerDbId);
         }
 
         System.out.println("Checking for duplicate isoform instances...");
