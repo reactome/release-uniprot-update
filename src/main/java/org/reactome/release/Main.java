@@ -1465,9 +1465,11 @@ public class Main {
     }
 
     private String getLastModifiedAuthor(SimpleInstance ewas) throws Exception {
-        List<SimpleInstance> ewasModifiedInstanceEdits = (List<SimpleInstance>) ewas.getAttribute(ReactomeJavaConstants.modified);
-        if (ewasModifiedInstanceEdits != null && !ewasModifiedInstanceEdits.isEmpty()) {
-            SimpleInstance ewasMostRecentModifiedInstanceEdit = ewasModifiedInstanceEdits.get(0);
+        List<Object> ewasModifiedInstanceEdits = getAttributeValues(ewas, ReactomeJavaConstants.modified);
+        if (!ewasModifiedInstanceEdits.isEmpty()) {
+            // The modified InstanceEdits are held oldest first, so the most recent one is the last, not the first.
+            SimpleInstance ewasMostRecentModifiedInstanceEdit =
+                (SimpleInstance) ewasModifiedInstanceEdits.get(ewasModifiedInstanceEdits.size() - 1);
             return getAuthorFromInstanceEdit(ewasMostRecentModifiedInstanceEdit);
         } else {
             return "Unknown author";
