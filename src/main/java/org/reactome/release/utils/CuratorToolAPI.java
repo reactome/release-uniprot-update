@@ -1,6 +1,5 @@
 package org.reactome.release.utils;
 
-import org.gk.model.GKInstance;
 import org.gk.model.InstanceDisplayNameGenerator;
 import org.gk.model.ReactomeJavaConstants;
 import org.gk.persistence.MySQLAdaptor;
@@ -19,6 +18,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+
+import static org.reactome.release.utils.Utils.getFirstAttributeValueAsString;
 
 /**
  * @author Joel Weiser (joel.weiser@oicr.on.ca)
@@ -312,7 +313,8 @@ public class CuratorToolAPI {
 
     public String getReferenceSequenceDisplayName(SimpleInstance referenceSequence) {
         String dbName = null;
-        GKInstance refDB = (GKInstance) referenceSequence.getAttribute(ReactomeJavaConstants.referenceDatabase);
+        SimpleInstance refDB =
+            (SimpleInstance) referenceSequence.getAttribute(ReactomeJavaConstants.referenceDatabase);
         if (refDB != null) {
             dbName = refDB.getDisplayName();
         }
@@ -320,18 +322,20 @@ public class CuratorToolAPI {
             dbName = "Unknown";
         }
 
-        String identifier = (String) referenceSequence.getAttribute(ReactomeJavaConstants.variantIdentifier);
+        String identifier = getFirstAttributeValueAsString(referenceSequence, ReactomeJavaConstants.variantIdentifier);
 
         if (identifier == null) {
-            identifier = (String) referenceSequence.getAttribute(ReactomeJavaConstants.identifier);
+            identifier = getFirstAttributeValueAsString(referenceSequence, ReactomeJavaConstants.identifier);
         }
         if (identifier == null) {
             identifier = "Unknown";
         }
 
-        String name = (String) referenceSequence.getAttribute(ReactomeJavaConstants.geneName);
+        // geneName and name are multi-valued attributes, so their values are Lists rather than the Strings this used
+        // to cast them to; the first value is the one that belongs in the display name.
+        String name = getFirstAttributeValueAsString(referenceSequence, ReactomeJavaConstants.geneName);
         if (name == null) {
-            name = (String) referenceSequence.getAttribute(ReactomeJavaConstants.name);
+            name = getFirstAttributeValueAsString(referenceSequence, ReactomeJavaConstants.name);
         }
         if (name == null) {
             name = "Unknown";
