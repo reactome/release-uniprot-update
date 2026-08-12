@@ -258,7 +258,15 @@ public class CuratorToolAPI {
     }
 
     public void deleteByDbId(long noReferrerDbId) {
-        controller.delete(controller.findByDdIdInInstance(noReferrerDbId));
+        SimpleInstance instance = controller.findByDdIdInInstance(noReferrerDbId);
+        // Nothing stored under that db id -- there is nothing to delete, and passing the null on would fail inside
+        // curator-tool-ws instead of saying which db id was asked for.
+        if (instance == null) {
+            logger.warn("No instance found for db id " + noReferrerDbId + " -- nothing to delete");
+            return;
+        }
+
+        controller.delete(instance);
 
         deletedDbIds.add(noReferrerDbId);
         committedDbIds.remove(noReferrerDbId);
