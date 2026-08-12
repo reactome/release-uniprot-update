@@ -91,8 +91,14 @@ public class CuratorToolAPI {
         }
 
         SimpleInstance committedInstance = controller.commit(simpleInstance);
+        // Nothing was stored, so callers cannot go on to use the instance -- for a new one, the dbId it would have
+        // been given is the very thing that is missing. Reported here rather than as a NullPointerException at
+        // whichever caller dereferences the result first.
+        if (committedInstance == null) {
+            throw new IllegalStateException("Commit of " + simpleInstance + " returned no instance");
+        }
 
-        if (isNewInstance && committedInstance != null) {
+        if (isNewInstance) {
             // The response carries the dbId the database assigned in place of the placeholder, and it is the only
             // place it is reported, so it is copied back onto the instance the caller holds.
             simpleInstance.setDbId(committedInstance.getDbId());
