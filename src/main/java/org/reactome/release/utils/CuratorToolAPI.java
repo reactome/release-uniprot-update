@@ -273,7 +273,11 @@ public class CuratorToolAPI {
     }
 
     public void close() {
-        applicationContext.close();
+        // Null when this instance did not create the context: the controller is static and only the first instance
+        // built one.
+        if (applicationContext != null) {
+            applicationContext.close();
+        }
     }
 
     public SimpleInstance inflate(SimpleInstance shellInstance) {
