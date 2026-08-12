@@ -367,8 +367,8 @@ public class Main {
                         newIsoformInstance.setAttribute(
                             ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
                         newIsoformInstance.setAttribute(ReactomeJavaConstants.identifier, primaryAccession);
-                        newIsoformInstance.setAttribute(
-                            ReactomeJavaConstants.isoformParent, newReferenceGeneProductInstance);
+                        newIsoformInstance.setAttribute(ReactomeJavaConstants.isoformParent,
+                            Collections.singletonList(newReferenceGeneProductInstance));
                         newIsoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier, isoformId);
 
                         updateInstance(curatorToolAPI, newIsoformInstance, values, sequenceReportWriter);
@@ -416,7 +416,7 @@ public class Main {
                                             isoformAccession, existingReferenceGeneProductInstance.getDbId()));
 
                                         isoformInstance.setAttribute(ReactomeJavaConstants.isoformParent,
-                                            existingReferenceGeneProductInstance);
+                                            Collections.singletonList(existingReferenceGeneProductInstance));
 
                                         updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
 
@@ -428,7 +428,7 @@ public class Main {
                                     isoformInstance.setAttribute(ReactomeJavaConstants.identifier,
                                         primaryAccession);
                                     isoformInstance.setAttribute(ReactomeJavaConstants.isoformParent,
-                                        existingReferenceGeneProductInstance);
+                                        Collections.singletonList(existingReferenceGeneProductInstance));
                                     isoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier,
                                         isoformId);
                                     long isoformDbId = curatorToolAPI.commit(isoformInstance).getDbId();
@@ -471,12 +471,14 @@ public class Main {
 
             SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance != null) {
-                SimpleInstance isoformParent =
-                    (SimpleInstance) isoformInstance.getAttribute(ReactomeJavaConstants.isoformParent);
-                if (isoformParent == null) {
+                List<Object> existingParents =
+                    getAttributeValues(isoformInstance, ReactomeJavaConstants.isoformParent);
+                if (existingParents.isEmpty()) {
                     continue;
                 }
-                isoformParents.add(isoformParent);
+                // All of the existing parents are kept: the commit below replaces the attribute's values, so any
+                // parent left out here would be dropped from the instance.
+                existingParents.forEach(existingParent -> isoformParents.add((SimpleInstance) existingParent));
             }
 
             List<SimpleInstance> mismatchedParents = curatorToolAPI.getReferenceGeneProductsByIdentifier(misMatchedIsoformAccession);
@@ -563,14 +565,15 @@ public class Main {
             }
 
             long obsoleteIsoformDbId = isoformInstance.getDbId();
-            SimpleInstance isoformParent =
-                (SimpleInstance) isoformInstance.getAttribute(ReactomeJavaConstants.isoformParent);
-            if (isoformParent == null) {
+            List<Object> isoformParents =
+                getAttributeValues(isoformInstance, ReactomeJavaConstants.isoformParent);
+            if (isoformParents.isEmpty()) {
                 System.out.println(isoformInstance.getDbId());
                 dbIdsToSkip.add(obsoleteIsoformDbId);
                 continue;
             }
 
+            SimpleInstance isoformParent = (SimpleInstance) isoformParents.get(0);
             String isoformParentIdentifier = (String)
                 isoformParent.getAttribute(ReactomeJavaConstants.identifier);
             if (isoformParentIdentifier == null || isoformParentIdentifier.isEmpty()) {
