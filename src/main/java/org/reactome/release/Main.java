@@ -992,20 +992,30 @@ public class Main {
         return taxonIdToSpeciesName;
     }
 
-    private List<String> getSkipList() {
-        final BufferedReader skipListWithNoReplacement = getSkipListFileBufferedReader("skiplist_no_replacement.txt");
-        final BufferedReader skipListWithReplacement = getSkipListFileBufferedReader("skiplist_with_replacement.txt");
-
+    private List<String> getSkipList() throws IOException {
         List<String> skipListIds = new ArrayList<>();
-        skipListIds.addAll(skipListWithNoReplacement.lines().filter(this::isValidUniProtId).collect(Collectors.toList()));
-        skipListIds.addAll(skipListWithReplacement.lines().filter(this::isValidUniProtId).collect(Collectors.toList()));
+
+        try (
+            BufferedReader skipListWithNoReplacement = getSkipListFileBufferedReader("skiplist_no_replacement.txt");
+            BufferedReader skipListWithReplacement = getSkipListFileBufferedReader("skiplist_with_replacement.txt")
+        ) {
+            skipListIds.addAll(
+                skipListWithNoReplacement.lines().filter(this::isValidUniProtId).collect(Collectors.toList()));
+            skipListIds.addAll(
+                skipListWithReplacement.lines().filter(this::isValidUniProtId).collect(Collectors.toList()));
+        }
         return skipListIds;
     }
 
     private BufferedReader getSkipListFileBufferedReader(String skipListFileName) {
-        return new BufferedReader(new InputStreamReader(
-            this.getClass().getClassLoader().getResourceAsStream(skipListFileName)
-        ));
+        InputStream skipListFileInputStream = this.getClass().getClassLoader().getResourceAsStream(skipListFileName);
+        // Reported here rather than as the NullPointerException an absent resource would otherwise cause inside
+        // InputStreamReader.
+        if (skipListFileInputStream == null) {
+            throw new IllegalStateException("The skip list file " + skipListFileName + " is not on the class path");
+        }
+
+        return new BufferedReader(new InputStreamReader(skipListFileInputStream));
     }
 
     private boolean isValidUniProtId(String potentialUniProtId) {
