@@ -1174,9 +1174,9 @@ public class Main {
     private String getReferenceGeneProductDescription(SimpleInstance rgpInstance) {
         String referenceGeneProductDescription = rgpInstance.getDbId() != null ? rgpInstance.getDbId().toString() : "";
 
-        String rgpName = (String) rgpInstance.getAttribute(ReactomeJavaConstants.name);
-        if (rgpName != null && !rgpName.isEmpty()) {
-            referenceGeneProductDescription += " - " + rgpName;
+        List<Object> rgpNames = getAttributeValues(rgpInstance, ReactomeJavaConstants.name);
+        if (!rgpNames.isEmpty()) {
+            referenceGeneProductDescription += " - " + rgpNames.get(0);
         }
 
         SimpleInstance speciesInstance = (SimpleInstance) rgpInstance.getAttribute(ReactomeJavaConstants.species);
