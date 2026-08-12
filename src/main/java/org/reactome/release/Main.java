@@ -399,8 +399,11 @@ public class Main {
                                 misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
                             }
                         }
-                        rgpAccessionToDbId.remove(primaryAccession);
                     }
+                    // Removed once the entry has been processed, not inside the loop above: the loop skips
+                    // ReferenceIsoforms, so an accession whose only instances are isoforms never reached this and was
+                    // then reported as obsolete despite the file still carrying it.
+                    rgpAccessionToDbId.remove(primaryAccession);
                 }
             }
         }
