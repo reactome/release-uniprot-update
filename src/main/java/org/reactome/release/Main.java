@@ -988,7 +988,15 @@ public class Main {
                 Thread.sleep(queryAttempts * 500);
             }
         }
-        Pattern seqRegionPattern = Pattern.compile("\"seq_region_name\":(\".*?\")");
+        if (ensEMBLIdData == null) {
+            System.err.println("Unable to query EnsEMBL for " + ensEMBLGeneId + " after " + maxQueryAttempts +
+                " attempts -- treating it as not on the primary assembly");
+            return false;
+        }
+
+        // The capture group is inside the quotes so that the region name is compared with the unquoted values in
+        // primaryAssemblyRegions.
+        Pattern seqRegionPattern = Pattern.compile("\"seq_region_name\":\"(.*?)\"");
         Matcher seqRegionMatcher = seqRegionPattern.matcher(ensEMBLIdData);
 
         if (seqRegionMatcher.find()) {
