@@ -348,7 +348,10 @@ public class Main {
 
                         duplicateFlag = true;
 
-                        if (values.get(ReactomeJavaConstants.species).isEmpty()) {
+                        // The species values are a singleton list holding whatever the file gave, so the list is never
+                        // empty -- it holds a null when no species name matched. That is the case where the existing
+                        // instance's species is carried over to the isoform updates below.
+                        if (speciesInstance == null) {
                             values.put(ReactomeJavaConstants.species, Collections.singletonList((SimpleInstance)
                                 existingReferenceGeneProductInstance.getAttribute(ReactomeJavaConstants.species))
                             );
