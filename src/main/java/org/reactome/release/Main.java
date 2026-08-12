@@ -304,6 +304,10 @@ public class Main {
                         ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
                     newReferenceGeneProductInstance.setAttribute(ReactomeJavaConstants.identifier, primaryAccession);
                     long newRGPDbId = curatorToolAPI.commit(newReferenceGeneProductInstance).getDbId();
+                    // updateInstance commits this instance a second time, and the commit above has left the copy
+                    // held here out of date with what is stored (its InstanceEdits in particular), so it is re-read
+                    // before being written again.
+                    newReferenceGeneProductInstance = curatorToolAPI.refresh(newReferenceGeneProductInstance);
 
                     System.out.println(String.format("New UniProt:%s\t%d", primaryAccession, newRGPDbId));
                     updateInstance(curatorToolAPI, newReferenceGeneProductInstance, values, sequenceReportWriter);
