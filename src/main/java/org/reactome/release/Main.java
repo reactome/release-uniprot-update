@@ -204,7 +204,9 @@ public class Main {
 
                 Integer sequenceLength = parseSequenceLength(entry, primaryAccession);
 
-                String checksum = matchSingleValue(entry, "<sequence.*checksum=\"([0-9A-F]+)\"");
+                // [^>]* keeps the match inside the one <sequence> tag: an entry is read as a single line, so a greedy
+                // .* here would run past the tag and take a checksum from anywhere later in the entry.
+                String checksum = matchSingleValue(entry, "<sequence[^>]*checksum=\"([0-9A-F]+)\"");
 
                 List<String> geneNames = matchMultipleValues(entry, "<gene>(.*?)</gene>").stream().flatMap(
                     names -> Arrays.stream(names.trim().split("\\s{2,}")).map(geneName ->
@@ -1384,7 +1386,8 @@ public class Main {
      * @return the sequence length, or null if the entry has none.
      */
     private Integer parseSequenceLength(String entry, String accession) {
-        String sequenceLength = matchSingleValue(entry, "<sequence.*length=\"(\\d+)\"");
+        // [^>]* rather than .*, for the reason given where the checksum is parsed.
+        String sequenceLength = matchSingleValue(entry, "<sequence[^>]*length=\"(\\d+)\"");
         if (sequenceLength.isEmpty()) {
             System.out.println("WARNING: No sequence length found for " + accession);
             return null;
