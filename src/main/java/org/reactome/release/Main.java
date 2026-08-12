@@ -1252,12 +1252,19 @@ public class Main {
             value.toString();
     }
 
+    /**
+     * The attributes whose value is set as the value itself rather than as a List. These are the single-valued
+     * attributes of the graph model: setting a multi-valued one to a bare value leaves curator-tool-ws unable to find
+     * a set method for it (its setter takes a List), so it logs the miss and drops the value silently on commit.
+     *
+     * @param attributeName - the name of the attribute being set.
+     * @return true if the attribute holds a single value, false if it holds a List.
+     */
     private boolean isSingleAttribute(String attributeName) {
         return Arrays.asList(
             ReactomeJavaConstants.species,
             ReactomeJavaConstants.sequenceLength,
-            ReactomeJavaConstants.checksum,
-            ReactomeJavaConstants.comment
+            ReactomeJavaConstants.checksum
         ).contains(attributeName);
     }
 
