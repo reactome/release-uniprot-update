@@ -321,7 +321,7 @@ public class Main {
                 }
                 List<String> keywords = matchMultipleValues(entry, "<keyword id=\".*?\">(.*?)</keyword>");
 
-                String comments = parseComments(entry);
+                List<String> comments = parseComments(entry);
 
                 List<String> isoformIds = matchMultipleValues(entry, "<isoform>\\s*<id>([A-Z0-9-]*)");
 
@@ -335,7 +335,7 @@ public class Main {
                 values.put(ReactomeJavaConstants.checksum, Collections.singletonList(checksum));
                 values.put(ReactomeJavaConstants.name, Collections.singletonList(name));
                 values.put(ReactomeJavaConstants.geneName, geneNames);
-                values.put(ReactomeJavaConstants.comment, Collections.singletonList(comments));
+                values.put(ReactomeJavaConstants.comment, comments);
                 values.put(ReactomeJavaConstants.keyword, keywords);
                 values.put(ReactomeJavaConstants.chain, chains);
                 if (taxon.contains("Homo sapiens")) {
@@ -1395,19 +1395,21 @@ public class Main {
         return Integer.valueOf(sequenceLength);
     }
 
-    private String parseComments(String entry) {
+    private List<String> parseComments(String entry) {
         Pattern commentsPattern = Pattern.compile(
             "<comment type=\"([A-Za-z ]*?)\".*?\\s+<text.*?>(.*?)</text>", Pattern.MULTILINE);
         Matcher commentsMatcher = commentsPattern.matcher(entry);
 
-        StringBuilder comments = new StringBuilder();
+        // Joined with a space rather than appended straight onto each other, which ran the end of one comment into the
+        // type of the next ("FUNCTION ...SUBUNIT ...").
+        List<String> comments = new ArrayList<>();
         while (commentsMatcher.find()) {
             String commentType = commentsMatcher.group(1).toUpperCase();
             String commentText = commentsMatcher.group(2);
 
-            comments.append(commentType).append(" ").append(commentText);
+            comments.add(commentType + " " + commentText);
         }
-        return comments.toString();
+        return comments;
     }
 
     private List<String> parseChains(String entry) {
