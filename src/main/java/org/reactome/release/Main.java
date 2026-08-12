@@ -622,11 +622,6 @@ public class Main {
 
             if (secondaryAccessionToPrimaryAccessionList.containsKey(rgpAccession)) {
                 List<String> alternateAccessions = secondaryAccessionToPrimaryAccessionList.get(rgpAccession);
-                if (alternateAccessions == null) {
-                    System.err.println("Zero alternate accessions for " + rgpAccession + ": " +
-                        alternateAccessions);
-                    continue;
-                }
                 isSecondaryAccession = true;
 
                 List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
