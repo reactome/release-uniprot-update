@@ -314,29 +314,45 @@ public class CuratorToolAPI {
 
     public void updateReferenceGeneProductDisplayNames() {
         for (SimpleInstance rgpInstance : fetchUniProtRGPInstances()) {
-            // A search returns shell instances -- dbId, displayName and schemaClass only -- so the instance has to be
-            // inflated before there are any attributes to build a display name out of. Committing a shell would also
-            // clear every attribute of the stored instance, since a commit replaces all of them.
-            SimpleInstance inflatedRGPInstance = inflate(rgpInstance);
-            if (inflatedRGPInstance == null) {
-                logger.warn("No instance found for db id " + rgpInstance.getDbId() +
-                    " -- skipping its display name update");
-                continue;
-            }
-
-            String currentDisplayName = inflatedRGPInstance.getDisplayName();
-            String newDisplayName = getReferenceSequenceDisplayName(inflatedRGPInstance);
-
-            if (!newDisplayName.equals(currentDisplayName)) {
-                inflatedRGPInstance.setDisplayName(newDisplayName);
-                commit(inflatedRGPInstance);
-            }
+            updateDisplayName(rgpInstance);
         }
-
     }
 
+    /**
+     * A ReferenceIsoform node carries the label of every class it inherits from, so a search for
+     * ReferenceGeneProduct returns the isoforms too and updateReferenceGeneProductDisplayNames covers them -- which is
+     * why Main filters isoforms out of such a search's results where it wants the master sequences alone. This pass
+     * exists so that the isoforms are covered even if that ceases to hold; where it does hold, the display names it
+     * computes are the ones already stored and nothing is committed.
+     */
     public void updateReferenceIsoformDisplayNames() {
+        // The shell instances of the search are enough here, since updateDisplayName inflates what it is given --
+        // fetchUniProtReferenceIsoformInstances would inflate every isoform a second time.
+        for (SimpleInstance referenceIsoformInstance :
+             fetchInstancesForClass(ReactomeJavaConstants.ReferenceIsoform, "UniProt")) {
 
+            updateDisplayName(referenceIsoformInstance);
+        }
+    }
+
+    private void updateDisplayName(SimpleInstance referenceSequence) {
+        // A search returns shell instances -- dbId, displayName and schemaClass only -- so the instance has to be
+        // inflated before there are any attributes to build a display name out of. Committing a shell would also
+        // clear every attribute of the stored instance, since a commit replaces all of them.
+        SimpleInstance inflatedReferenceSequence = inflate(referenceSequence);
+        if (inflatedReferenceSequence == null) {
+            logger.warn("No instance found for db id " + referenceSequence.getDbId() +
+                " -- skipping its display name update");
+            return;
+        }
+
+        String currentDisplayName = inflatedReferenceSequence.getDisplayName();
+        String newDisplayName = getReferenceSequenceDisplayName(inflatedReferenceSequence);
+
+        if (!newDisplayName.equals(currentDisplayName)) {
+            inflatedReferenceSequence.setDisplayName(newDisplayName);
+            commit(inflatedReferenceSequence);
+        }
     }
 
     public String getReferenceSequenceDisplayName(SimpleInstance referenceSequence) {

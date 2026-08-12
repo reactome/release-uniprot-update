@@ -501,7 +501,7 @@ public class Main {
         System.out.println("Updating display names...");
 
         curatorToolAPI.updateReferenceGeneProductDisplayNames();
-        //curatorToolAPI.updateReferenceIsoformDisplayNames();
+        curatorToolAPI.updateReferenceIsoformDisplayNames();
 
         System.out.println("Done");
 
