@@ -1,0 +1,434 @@
+package org.reactome.release.utils;
+
+import org.gk.model.GKInstance;
+import org.gk.model.InstanceDisplayNameGenerator;
+import org.gk.model.ReactomeJavaConstants;
+import org.gk.persistence.MySQLAdaptor;
+import org.reactome.curation.CuratorToolWsApplication;
+import org.reactome.curation.controller.CurationController;
+import org.reactome.curation.model.InstanceList;
+import org.reactome.curation.model.NamedReferrerList;
+import org.reactome.curation.model.SimpleInstance;
+import org.reactome.server.graph.domain.model.DatabaseObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
+
+import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+
+/**
+ * @author Joel Weiser (joel.weiser@oicr.on.ca)
+ * Created 7/5/2026
+ */
+public class CuratorToolAPI {
+
+    private static final Logger logger = LoggerFactory.getLogger(CuratorToolAPI.class);
+
+    private static final int PAGE_SIZE = 500;
+
+    private static CurationController controller;
+    private long personId;
+
+    // The GO instances are loaded once, up-front, and kept in memory for the whole run. The server rejects a
+    // commit whose "modified" InstanceEdit does not match the stored one (optimistic locking) and a commit
+    // replaces *all* of the stored instance's attributes, so an in-memory copy must be re-read once this run has
+    // written to it. These sets record what this run has written to and what it has removed.
+    private final Set<Long> committedDbIds = new HashSet<>();
+    private final Set<Long> deletedDbIds = new HashSet<>();
+
+    // Source of the negative placeholder dbIds given to instances that are not in the database yet.
+    private final AtomicLong placeholderDbIdCounter = new AtomicLong();
+
+    private ConfigurableApplicationContext applicationContext;
+
+    public CuratorToolAPI(long personId) {
+        if (controller == null) {
+            controller = this.initController();
+            if (controller == null) {
+                throw new IllegalStateException("Failed to initialize CuratorToolAPI: controller is null");
+            }
+        }
+        this.personId = personId;
+    }
+
+    // The following code is copied directly from the slicing tool project.
+    private CurationController initController() {
+        try {
+            // curator-tool-ws's bundled application.properties forces DEBUG for these loggers and binds the
+            // HTTP connector to 9090. System properties outrank a classpath application.properties in Spring
+            // Boot's precedence order, so these settings take hold for the batch run without editing
+            // curator-tool-ws. (SpringApplicationBuilder.properties(...) are default/lowest precedence and
+            // would NOT override application.properties.)
+            System.setProperty("logging.level.org.springframework.data.neo4j", "WARN");
+            System.setProperty("logging.level.org.springframework.security", "WARN");
+            // Disable the HTTP server; the full servlet context is kept for correct AspectJ wiring.
+            System.setProperty("server.port", "-1");
+
+            applicationContext = new SpringApplicationBuilder(CuratorToolWsApplication.class)
+                .web(WebApplicationType.SERVLET)
+                .run();
+            return applicationContext.getBean(CurationController.class);
+        }
+        catch (Exception e) {
+            logger.error("GraphDBInstanceManager.initController(): " + e.getMessage(), e);
+        }
+        return null;
+    }
+
+    public SimpleInstance commit(SimpleInstance simpleInstance) {
+        if (simpleInstance.getDefaultPersonId() == null) {
+            simpleInstance.setDefaultPersonId(getPersonId());
+        }
+
+        boolean isNewInstance = simpleInstance.getDbId() == null || simpleInstance.getDbId() < 0;
+        if (simpleInstance.getDbId() == null) {
+            simpleInstance.setDbId(nextPlaceholderDbId());
+        }
+
+        SimpleInstance committedInstance = controller.commit(simpleInstance);
+
+        if (isNewInstance && committedInstance != null) {
+            // The response carries the dbId the database assigned in place of the placeholder, and it is the only
+            // place it is reported, so it is copied back onto the instance the caller holds.
+            simpleInstance.setDbId(committedInstance.getDbId());
+        }
+
+        Long dbId = simpleInstance.getDbId();
+        if (dbId != null && dbId > 0) {
+            committedDbIds.add(dbId);
+            deletedDbIds.remove(dbId);
+        }
+        return committedInstance;
+    }
+
+    /**
+     * Returns a placeholder dbId for an instance that is not in the database yet. curator-tool-ws identifies a new
+     * instance by a NEGATIVE dbId: it is what makes a commit store the instance (recording the author in its
+     * "created" slot rather than in "modified") and replace the placeholder with a real dbId. A null dbId is not a
+     * substitute -- curator-tool-ws unboxes the dbId without a null check while working out what to store
+     * (DatabaseObjectInstanceConverter.convert and CurationService.grepNewInstances), so committing an instance
+     * with a null dbId fails with a NullPointerException.
+     *
+     * @return a negative dbId, unused by any other instance created during this run.
+     */
+    private long nextPlaceholderDbId() {
+        return -placeholderDbIdCounter.incrementAndGet();
+    }
+
+    /**
+     * Returns a copy of the instance that is up to date with the database if this run has already committed it,
+     * and the instance itself otherwise. Returns null if this run has deleted the instance, in which case the
+     * caller must stop using it -- committing it would re-create the deleted instance.
+     *
+     * An instance that this run has committed is stale in two ways: its "modified" InstanceEdit no longer matches
+     * the stored one, so a further commit is rejected with an InstanceChangedException, and any attribute written
+     * by that commit (or by a commit of a fresh copy of the same instance elsewhere in the run) still holds its
+     * pre-commit value, which the next commit would write back over the stored value.
+     *
+     * @param instance - the instance to refresh.
+     * @return an up-to-date instance, or null if the instance has been deleted by this run.
+     */
+    public SimpleInstance refresh(SimpleInstance instance) {
+        Long dbId = instance.getDbId();
+        if (dbId == null) {
+            return instance; // Never committed, so there is nothing stored to be out of date with.
+        }
+        if (deletedDbIds.contains(dbId)) {
+            return null;
+        }
+        return committedDbIds.contains(dbId) ? inflate(instance) : instance;
+    }
+
+    public SimpleInstance findByDbId(long dbId) {
+        DatabaseObject databaseObject = controller.findByDdId(dbId);
+        if (databaseObject == null) {
+            return null;
+        }
+
+        try {
+            return controller.getConverter().convert(databaseObject);
+        } catch (Exception e) {
+            throw new RuntimeException("Unable to convert DatabaseObject " + databaseObject + " to SimpleInstance", e);
+        }
+    }
+
+    public SimpleInstance findByDisplayName(String className, String displayName) {
+        // NB: the controller takes the display name first and a comma-separated list of class names second.
+        return controller.findByDisplayName(displayName, className);
+    }
+
+    public SimpleInstance fetchUniProtReferenceDatabase() {
+        SimpleInstance uniProtReferenceDatabase = findByDisplayName(ReactomeJavaConstants.ReferenceDatabase, "UniProt");
+        if (uniProtReferenceDatabase == null) {
+            throw new IllegalStateException("No " + ReactomeJavaConstants.ReferenceDatabase +
+                " instance with the display name 'UniProt' exists in the database");
+        }
+        return uniProtReferenceDatabase;
+    }
+
+    public Map<String, Long> getRGPAccessionToDbIdMap() {
+        Map<String, Long> identifierToDbId = new HashMap<>();
+        for (SimpleInstance rgp : fetchUniProtRGPInstances()) {
+            String identifier = getIdentifierFromDisplayName(rgp);
+            if (identifier != null && !identifier.isEmpty()) {
+                identifierToDbId.put(identifier, rgp.getDbId());
+            }
+        }
+        return identifierToDbId;
+    }
+
+    public Map<String, Long> getIsoformAccessionToDbIdMap() {
+        Map<String, Long> isoformIdentifierToDbId = new HashMap<>();
+        for (SimpleInstance referenceIsoform : fetchUniProtReferenceIsoformInstances()) {
+            String variantIdentifier = (String) referenceIsoform.getAttribute(ReactomeJavaConstants.variantIdentifier);
+            if (variantIdentifier != null && !variantIdentifier.isEmpty()) {
+                isoformIdentifierToDbId.put(variantIdentifier, referenceIsoform.getDbId());
+            }
+        }
+        return isoformIdentifierToDbId;
+    }
+
+    public Map<String, Long> getRDSIdentifierToDbIdMap() {
+        Map<String, Long> rdsIdentifierToDbId = new HashMap<>();
+        for (SimpleInstance referenceDNASequence : fetchRDSInstances()) {
+            String rdsIdentifier = (String) referenceDNASequence.getAttribute(ReactomeJavaConstants.identifier);
+            if (rdsIdentifier != null && !rdsIdentifier.isEmpty()) {
+                rdsIdentifierToDbId.put(rdsIdentifier, referenceDNASequence.getDbId());
+            }
+        }
+        return rdsIdentifierToDbId;
+    }
+
+    public SimpleInstance getSpeciesInstance(String speciesName) throws Exception {
+        SimpleInstance speciesInstance = fetchSpecies(speciesName);
+        if (speciesInstance != null) {
+            return speciesInstance;
+        } else {
+            speciesInstance = createNewSpeciesInstance(speciesName);
+            commit(speciesInstance);
+            return speciesInstance;
+        }
+    }
+
+    public SimpleInstance getHumanEnsEMBLGeneReferenceDatabase() {
+        InstanceList ensEMBLHumanReferenceDatabaseInstances = controller.searchInstances(
+            ReactomeJavaConstants.ReferenceDatabase,
+            0,
+            1,
+            Optional.of(ReactomeJavaConstants.name),
+            Optional.of("equal"),
+            Optional.of("ENSEMBL")
+        );
+
+        if (ensEMBLHumanReferenceDatabaseInstances == null || ensEMBLHumanReferenceDatabaseInstances.isEmpty()) {
+            throw new RuntimeException("Could not get EnsEMBL human gene reference database");
+        }
+
+        return ensEMBLHumanReferenceDatabaseInstances.getInstances().get(0);
+    }
+
+    public List<SimpleInstance> getReferenceGeneProductsByIdentifier(String identifier) {
+        return getInstancesByAttribute(
+            ReactomeJavaConstants.ReferenceGeneProduct, ReactomeJavaConstants.identifier, identifier);
+    }
+
+    public List<SimpleInstance> getReferenceIsoformByVariantIdentifier(String variantIdentifier) {
+        return getInstancesByAttribute(
+            ReactomeJavaConstants.ReferenceIsoform, ReactomeJavaConstants.variantIdentifier, variantIdentifier
+        );
+    }
+
+    public void deleteInstance(SimpleInstance instance) {
+        controller.delete(instance);
+        if (instance.getDbId() != null) {
+            deletedDbIds.add(instance.getDbId());
+            committedDbIds.remove(instance.getDbId());
+        }
+    }
+
+    public void deleteByDbId(long noReferrerDbId) {
+        controller.delete(controller.findByDdIdInInstance(noReferrerDbId));
+
+        deletedDbIds.add(noReferrerDbId);
+        committedDbIds.remove(noReferrerDbId);
+    }
+
+    public void close() {
+        applicationContext.close();
+    }
+
+    public SimpleInstance inflate(SimpleInstance shellInstance) {
+        return controller.findByDdIdInInstance(shellInstance.getDbId());
+    }
+
+    public List<SimpleInstance> getReferrers(SimpleInstance instance, String referrerAttributeName) throws Exception {
+        return controller.getReferrers(instance.getDbId())
+            .stream()
+            .filter(g -> referrerAttributeName.equals(g.getAttributeName()))
+            .findFirst()
+            .map(NamedReferrerList::getReferrers)
+            .orElse(Collections.emptyList());
+    }
+
+    public Collection<NamedReferrerList> getReferrers(SimpleInstance instance) throws Exception {
+        return controller.getReferrers(instance.getDbId());
+    }
+
+    public long getPersonId() {
+        return this.personId;
+    }
+
+    private List<SimpleInstance> fetchUniProtRGPInstances() {
+        return fetchInstancesForClass(ReactomeJavaConstants.ReferenceGeneProduct, "UniProt");
+    }
+
+    public List<SimpleInstance> fetchUniProtReferenceIsoformInstances() {
+        return fetchInstancesForClass(ReactomeJavaConstants.ReferenceIsoform, "UniProt")
+            .parallelStream()
+            .map(this::inflate)
+            .collect(Collectors.toList());
+    }
+
+    public void updateReferenceGeneProductDisplayNames() {
+        for (SimpleInstance rgpInstance : fetchUniProtRGPInstances()) {
+            String currentDisplayName = rgpInstance.getDisplayName();
+            String newDisplayName = getReferenceSequenceDisplayName(rgpInstance);
+
+            if (!currentDisplayName.equals(newDisplayName)) {
+                rgpInstance.setDisplayName(newDisplayName);
+                commit(rgpInstance);
+            }
+        }
+
+    }
+
+    public void updateReferenceIsoformDisplayNames() {
+
+    }
+
+    public String getReferenceSequenceDisplayName(SimpleInstance referenceSequence) {
+        String dbName = null;
+        GKInstance refDB = (GKInstance) referenceSequence.getAttribute(ReactomeJavaConstants.referenceDatabase);
+        if (refDB != null) {
+            dbName = refDB.getDisplayName();
+        }
+        if (dbName == null) {
+            dbName = "Unknown";
+        }
+
+        String identifier = (String) referenceSequence.getAttribute(ReactomeJavaConstants.variantIdentifier);
+
+        if (identifier == null) {
+            identifier = (String) referenceSequence.getAttribute(ReactomeJavaConstants.identifier);
+        }
+        if (identifier == null) {
+            identifier = "Unknown";
+        }
+
+        String name = (String) referenceSequence.getAttribute(ReactomeJavaConstants.geneName);
+        if (name == null) {
+            name = (String) referenceSequence.getAttribute(ReactomeJavaConstants.name);
+        }
+        if (name == null) {
+            name = "Unknown";
+        }
+        return dbName + ":" + identifier + " " + name;
+    }
+
+    private List<SimpleInstance> fetchRDSInstances() {
+        return fetchInstancesForClass(ReactomeJavaConstants.ReferenceDNASequence)
+            .parallelStream()
+            .map(this::inflate)
+            .collect(Collectors.toList());
+    }
+
+    private List<SimpleInstance> fetchInstancesForClass(String className) {
+        return fetchInstancesForClass(className, null);
+    }
+
+    private List<SimpleInstance> fetchInstancesForClass(String className, String referenceDatabaseName) {
+        // curator-tool-ws only skips the reference database filter when the query parameters are ABSENT.
+        // An empty search key is still a present Optional and matches a reference database whose display
+        // name is "" -- i.e. nothing at all.
+        boolean filterByReferenceDatabase = referenceDatabaseName != null && !referenceDatabaseName.isEmpty();
+        Optional<String> attribute = filterByReferenceDatabase
+            ? Optional.of(ReactomeJavaConstants.referenceDatabase)
+            : Optional.empty();
+        Optional<String> operand = filterByReferenceDatabase ? Optional.of("equal") : Optional.empty();
+        Optional<String> searchKey = filterByReferenceDatabase ? Optional.of(referenceDatabaseName) : Optional.empty();
+
+        List<SimpleInstance> instances = new ArrayList<>();
+
+        int skip = 0;
+        Integer total = null;
+        do {
+            InstanceList page = controller.searchInstances(className, skip, PAGE_SIZE, attribute, operand, searchKey);
+
+            if (total == null) {
+                total = page.getTotalCount() != null ? page.getTotalCount() : 0;
+            }
+            instances.addAll(page.getInstances());
+            skip += PAGE_SIZE;
+        } while (skip < total);
+
+        return instances;
+    }
+
+    private List<SimpleInstance> getInstancesByAttribute(String className, String attributeName, String attributeValue) {
+        List<SimpleInstance> instances = new ArrayList<>();
+
+        int skip = 0;
+        Integer total = null;
+        do {
+            InstanceList page = controller.searchInstances(
+                className,
+                skip,
+                PAGE_SIZE,
+                Optional.of(attributeName),
+                Optional.of("equal"),
+                Optional.of(attributeValue)
+            );
+
+            if (total == null) {
+                total = page.getTotalCount() != null ? page.getTotalCount() : 0;
+            }
+            instances.addAll(page.getInstances());
+            skip += PAGE_SIZE;
+        } while (skip < total);
+
+        return instances.parallelStream().map(this::inflate).collect(Collectors.toList());
+    }
+
+    private String getIdentifierFromDisplayName(SimpleInstance referenceSequence) {
+        String displayName = referenceSequence.getDisplayName();
+        int colonIndex = displayName.indexOf(':');
+        int spaceIndex = displayName.indexOf(' ', colonIndex + 1);
+        return displayName.substring(colonIndex + 1, spaceIndex < 0 ? displayName.length() : spaceIndex);
+    }
+
+    public SimpleInstance fetchSpecies(String speciesName) {
+        InstanceList speciesInstances = controller.searchInstances(
+            ReactomeJavaConstants.Species,
+            0,
+            1,
+            Optional.of(ReactomeJavaConstants.name),
+            Optional.of("equal"),
+            Optional.of(speciesName)
+        );
+
+        return !speciesInstances.isEmpty() ? speciesInstances.getInstances().get(0) : null;
+    }
+
+    private SimpleInstance createNewSpeciesInstance(String speciesName) throws Exception {
+        SimpleInstance speciesInstance = new SimpleInstance();
+        speciesInstance.setSchemaClassName(ReactomeJavaConstants.Species);
+        speciesInstance.setAttribute(ReactomeJavaConstants.name, Collections.singletonList(speciesName));
+        speciesInstance.setDisplayName(speciesName);
+        return speciesInstance;
+    }
+
+}

@@ -1,13 +1,11 @@
 package org.reactome.release;
 
-import org.gk.model.GKInstance;
-import org.gk.model.InstanceDisplayNameGenerator;
 import org.gk.model.ReactomeJavaConstants;
-import org.gk.persistence.MySQLAdaptor;
+import org.reactome.curation.model.SimpleInstance;
 import org.reactome.release.reports.DuplicateAccessionReport;
 import org.reactome.release.reports.Reportable;
 import org.reactome.release.reports.TrEMBLAccessionReport;
-import org.reactome.util.general.DBUtils;
+import org.reactome.release.utils.CuratorToolAPI;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -24,9 +22,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static org.reactome.release.Utils.emptyListIfNull;
-import static org.reactome.release.Utils.isTrEMBLId;
-import static org.reactome.util.general.DBUtils.getCuratorDbAdaptor;
+import static org.reactome.release.utils.Utils.emptyListIfNull;
+import static org.reactome.release.utils.Utils.isTrEMBLId;
 
 /**
  * @author Joel Weiser (joel.weiser@oicr.on.ca)
@@ -46,14 +43,13 @@ public class Main {
 
     @SuppressWarnings("unchecked")
     private void run(Properties configProperties) throws Exception {
-        MySQLAdaptor dba = getCuratorDbAdaptor(configProperties);
+        CuratorToolAPI curatorToolAPI = new CuratorToolAPI(Long.parseLong(configProperties.getProperty("personId")));
 
         List<String> skipList = getSkipList();
 
         this.uniprotUpdateDirectoryPath = Paths.get(configProperties.getProperty("uniprotUpdateDirectory"));
 
-        GKInstance uniProtReferenceDatabase = getUniProtReferenceDatabase(dba);
-        GKInstance instanceEdit = getInstanceEdit(dba, "UniProt Update on " + getTodaysDate());
+        SimpleInstance uniProtReferenceDatabase = curatorToolAPI.fetchUniProtReferenceDatabase();
 
         Map<Integer, String> taxonIdToSpeciesName = getTaxonIdToSpeciesName();
 
@@ -66,12 +62,12 @@ public class Main {
         Map<Long,String> duplicateDbIdToReferenceGeneProductAccession = new HashMap<>();
 
         System.out.println("Populating rgp accession to db id...");
-        Map<String, Long> rgpAccessionToDbId = getRGPAccessionToDbIdMap(dba);
+        Map<String, Long> rgpAccessionToDbId = curatorToolAPI.getRGPAccessionToDbIdMap();
         totalNumberOfDbInstances = rgpAccessionToDbId.size();
         System.out.println("Populating isoform accession to db id...");
-        Map<String, Long> isoformAccessionToDbId = getIsoformAccessionToDbIdMap(dba);
+        Map<String, Long> isoformAccessionToDbId = curatorToolAPI.getIsoformAccessionToDbIdMap();
         System.out.println("Populating rds identifier to db id...");
-        Map<String, Long> rdsIdentifierToDbId = getRDSIdentifierToDbIdMap(dba);
+        Map<String, Long> rdsIdentifierToDbId = curatorToolAPI.getRDSIdentifierToDbIdMap();
 
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
@@ -97,10 +93,8 @@ public class Main {
 
                 if (recordCounter % 1000 == 0) {
                     if (recordCounter != 0) {
-                        dba.commit();
                         System.out.println(String.format("%d records processed and committed", recordCounter));
                     }
-                    dba.startTransaction();
                 }
                 recordCounter += 1;
 
@@ -113,12 +107,11 @@ public class Main {
 
                 String organismName = matchSingleValue(entry, "<name type=\"scientific\">(.*?)</name>");
                 String taxon = "";
-                Map<String, GKInstance> speciesNameToInstanceCache = new HashMap<>();
-                GKInstance speciesInstance = null;
+                SimpleInstance speciesInstance = null;
                 for (String speciesName : taxonIdToSpeciesName.values()) {
                     if (organismName.contains(speciesName)) {
                         taxon = speciesName;
-                        speciesInstance = getSpeciesInstance(dba, taxon, speciesNameToInstanceCache);
+                        speciesInstance = curatorToolAPI.getSpeciesInstance(taxon);
                     }
                 }
 
@@ -181,7 +174,7 @@ public class Main {
                     geneNames.get(0) :
                     recommendedName;
 
-                List<GKInstance> referenceDNASequences = new ArrayList<>();
+                List<SimpleInstance> referenceDNASequences = new ArrayList<>();
                 if (taxon.contains("Homo sapiens")) {
                     String typeValueRegex = "<property type=\"gene ID\" value=\"(ENSG.*?)\"";
                     Set<String> uniqueEnsEMBLGeneIds = new HashSet<>();
@@ -196,50 +189,48 @@ public class Main {
                         referenceDNASequenceReportWriter.write("Multiple gene ids -- " +
                             String.join("\t", primaryAccession, name, uniqueEnsEMBLGeneIds.toString()) + "\n");
                     }
-                    GKInstance humanEnsEMBLGeneReferenceDatabase = getHumanEnsEMBLGeneReferenceDatabase(dba);
+                    SimpleInstance humanEnsEMBLGeneReferenceDatabase = curatorToolAPI.getHumanEnsEMBLGeneReferenceDatabase();
 
                     for (String ensEMBLGeneId : uniqueEnsEMBLGeneIds) {
-                        GKInstance referenceDNASequence;
+                        SimpleInstance referenceDNASequence;
 
                         if (rdsIdentifierToDbId.containsKey(ensEMBLGeneId)) {
                             referenceDNASequenceReportWriter.write("Checking existing reference DNA sequence for " +
                                 ensEMBLGeneId + " with db_id " + rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n");
 
                             long rdsDbId = rdsIdentifierToDbId.get(ensEMBLGeneId);
-                            referenceDNASequence = fetchReferenceDNASequenceByDbId(dba, rdsDbId);
-                            dba.loadInstanceAttributeValues(referenceDNASequence);
+                            referenceDNASequence = fetchReferenceDNASequenceByDbId(curatorToolAPI, rdsDbId);
 
-                            GKInstance existingRDSReferenceDatabase = (GKInstance)
-                                referenceDNASequence.getAttributeValue(ReactomeJavaConstants.referenceDatabase);
+                            SimpleInstance existingRDSReferenceDatabase = (SimpleInstance)
+                                referenceDNASequence.getAttribute(ReactomeJavaConstants.referenceDatabase);
                             boolean isUpdateToReferenceDNASequence = false;
                             if (existingRDSReferenceDatabase == null ||
                                 !sameDbId(existingRDSReferenceDatabase, humanEnsEMBLGeneReferenceDatabase)) {
-                                referenceDNASequence.addAttributeValue(
+                                referenceDNASequence.setAttribute(
                                     ReactomeJavaConstants.referenceDatabase, humanEnsEMBLGeneReferenceDatabase);
                                 isUpdateToReferenceDNASequence = true;
                             }
 
                             List<String> existingGeneNames = (List<String>)
-                                referenceDNASequence.getAttributeValuesList(ReactomeJavaConstants.geneName);
+                                referenceDNASequence.getAttribute(ReactomeJavaConstants.geneName);
                             if (existingGeneNames == null || areDifferentLists(existingGeneNames, geneNames)) {
-                                referenceDNASequence.setAttributeValue(ReactomeJavaConstants.geneName, geneNames);
+                                referenceDNASequence.setAttribute(ReactomeJavaConstants.geneName, geneNames);
                                 isUpdateToReferenceDNASequence = true;
                             }
-                            GKInstance existingSpeciesInstance = (GKInstance)
-                                referenceDNASequence.getAttributeValue(ReactomeJavaConstants.species);
+                            SimpleInstance existingSpeciesInstance = (SimpleInstance)
+                                referenceDNASequence.getAttribute(ReactomeJavaConstants.species);
                             if (existingSpeciesInstance == null ||
                                 (speciesInstance != null &&
-                                !existingSpeciesInstance.getDBID().equals(speciesInstance.getDBID()))) {
+                                !existingSpeciesInstance.getDbId().equals(speciesInstance.getDbId()))) {
 
-                                referenceDNASequence.addAttributeValue(ReactomeJavaConstants.species, speciesInstance);
+                                referenceDNASequence.setAttribute(ReactomeJavaConstants.species, speciesInstance);
                                 isUpdateToReferenceDNASequence = true;
                             }
 
                             String existingIdentifier = (String)
-                                referenceDNASequence.getAttributeValue(ReactomeJavaConstants.identifier);
+                                referenceDNASequence.getAttribute(ReactomeJavaConstants.identifier);
                             if (existingIdentifier == null || !existingIdentifier.equals(ensEMBLGeneId)) {
-                                referenceDNASequence.setAttributeValue(
-                                    ReactomeJavaConstants.identifier, ensEMBLGeneId);
+                                referenceDNASequence.setAttribute(ReactomeJavaConstants.identifier, ensEMBLGeneId);
                                 isUpdateToReferenceDNASequence = true;
                             }
 
@@ -248,9 +239,8 @@ public class Main {
                                     "Updating existing reference DNA sequence for " + ensEMBLGeneId + " with db_id " +
                                     rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n"
                                 );
-                                InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
-                                referenceDNASequence.addAttributeValue(ReactomeJavaConstants.modified, instanceEdit);
-                                dba.updateInstance(referenceDNASequence);
+                                referenceDNASequence.setDisplayName(curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
+                                curatorToolAPI.commit(referenceDNASequence);
                             }
                         } else {
                             if (uniqueEnsEMBLGeneIds.size() > 1 && !onEnsEMBLPrimaryAssembly(ensEMBLGeneId)) {
@@ -263,26 +253,17 @@ public class Main {
                                 continue;
                             }
 
-                            referenceDNASequence = new GKInstance(
-                                dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceDNASequence));
-                            referenceDNASequence.setDbAdaptor(dba);
-                            referenceDNASequence.setAttributeValue(
+                            referenceDNASequence = new SimpleInstance();
+                            referenceDNASequence.setSchemaClassName(ReactomeJavaConstants.ReferenceDNASequence);
+                            referenceDNASequence.setAttribute(
                                 ReactomeJavaConstants.referenceDatabase, humanEnsEMBLGeneReferenceDatabase);
-                            referenceDNASequence.setAttributeValue(
-                                ReactomeJavaConstants.identifier, ensEMBLGeneId
-                            );
-                            referenceDNASequence.setAttributeValue(
-                                ReactomeJavaConstants.created, instanceEdit
-                            );
-                            referenceDNASequence.setAttributeValue(
-                                ReactomeJavaConstants.geneName, geneNames
-                            );
-                            referenceDNASequence.setAttributeValue(
-                                ReactomeJavaConstants.species, speciesInstance
-                            );
-                            InstanceDisplayNameGenerator.setDisplayName(referenceDNASequence);
+                            referenceDNASequence.setAttribute(ReactomeJavaConstants.identifier, ensEMBLGeneId);
+                            referenceDNASequence.setAttribute(ReactomeJavaConstants.geneName, geneNames);
+                            referenceDNASequence.setAttribute(ReactomeJavaConstants.species, speciesInstance);
 
-                            long referenceDNASequenceDbId = dba.storeInstance(referenceDNASequence);
+                            referenceDNASequence.setDisplayName(curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
+
+                            long referenceDNASequenceDbId = curatorToolAPI.commit(referenceDNASequence).getDbId();
                             referenceDNASequenceReportWriter.write("Reference DNA sequence with db_id " +
                                 referenceDNASequenceDbId + " created for " + ensEMBLGeneId + "\n");
                             rdsIdentifierToDbId.put(ensEMBLGeneId, referenceDNASequenceDbId);
@@ -315,118 +296,92 @@ public class Main {
                 if (!rgpAccessionToDbId.containsKey(primaryAccession)) {
                     numberOfNewSwissProtInstances += 1;
 
-                    GKInstance newReferenceGeneProductInstance =
-                        new GKInstance(dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceGeneProduct));
-                    newReferenceGeneProductInstance.setDbAdaptor(dba);
-                    newReferenceGeneProductInstance.setAttributeValue(
+                    SimpleInstance newReferenceGeneProductInstance = new SimpleInstance();
+                    newReferenceGeneProductInstance.setSchemaClassName(ReactomeJavaConstants.ReferenceGeneProduct);
+                    newReferenceGeneProductInstance.setAttribute(
                         ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
-                    newReferenceGeneProductInstance.setAttributeValue(
-                        ReactomeJavaConstants.identifier, primaryAccession);
-                    newReferenceGeneProductInstance.setAttributeValue(ReactomeJavaConstants.created, instanceEdit);
-                    long newRGPDbId = dba.storeInstance(newReferenceGeneProductInstance);
+                    newReferenceGeneProductInstance.setAttribute(ReactomeJavaConstants.identifier, primaryAccession);
+                    long newRGPDbId = curatorToolAPI.commit(newReferenceGeneProductInstance).getDbId();
 
                     System.out.println(String.format("New UniProt:%s\t%d", primaryAccession, newRGPDbId));
-                    updateInstance(newReferenceGeneProductInstance, values, sequenceReportWriter);
+                    updateInstance(curatorToolAPI, newReferenceGeneProductInstance, values, sequenceReportWriter);
                     for (String isoformId : isoformIds) {
                         if (!isoformId.contains(primaryAccession)) {
                             misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
                         }
 
-                        GKInstance newIsoformInstance = new GKInstance(
-                            dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceIsoform));
-                        newIsoformInstance.setDbAdaptor(dba);
-                        newIsoformInstance.setAttributeValue(
+                        SimpleInstance newIsoformInstance = new SimpleInstance();
+                        newIsoformInstance.setSchemaClassName(ReactomeJavaConstants.ReferenceIsoform);
+                        newIsoformInstance.setAttribute(
                             ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
-                        newIsoformInstance.setAttributeValue(ReactomeJavaConstants.identifier, primaryAccession);
-                        newIsoformInstance.setAttributeValue(
+                        newIsoformInstance.setAttribute(ReactomeJavaConstants.identifier, primaryAccession);
+                        newIsoformInstance.setAttribute(
                             ReactomeJavaConstants.isoformParent, newReferenceGeneProductInstance);
-                        newIsoformInstance.setAttributeValue(ReactomeJavaConstants.created, instanceEdit);
-                        newIsoformInstance.setAttributeValue(ReactomeJavaConstants.variantIdentifier, isoformId);
+                        newIsoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier, isoformId);
 
-                        updateInstance(newIsoformInstance, values, sequenceReportWriter);
+                        updateInstance(curatorToolAPI, newIsoformInstance, values, sequenceReportWriter);
                     }
                 } else {
-                    Collection<GKInstance> existingReferenceGeneProductInstances = dba.fetchInstanceByAttribute(
-                        ReactomeJavaConstants.ReferenceGeneProduct,
-                        ReactomeJavaConstants.identifier,
-                        "=",
-                        primaryAccession
-                    );
+                    Collection<SimpleInstance> existingReferenceGeneProductInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(primaryAccession);
                     boolean duplicateFlag = false;
-                    for (GKInstance existingReferenceGeneProductInstance : existingReferenceGeneProductInstances) {
+                    for (SimpleInstance existingReferenceGeneProductInstance : existingReferenceGeneProductInstances) {
                         if (isAReferenceIsoform(existingReferenceGeneProductInstance)) {
                             continue;
                         }
 
                         if (duplicateFlag) {
                             duplicateDbIdToReferenceGeneProductAccession.put(
-                                existingReferenceGeneProductInstance.getDBID(), primaryAccession);
+                                existingReferenceGeneProductInstance.getDbId(), primaryAccession);
                             continue;
                         }
 
                         System.out.println(String.format("Updating master sequence...%d\t%s",
-                            existingReferenceGeneProductInstance.getDBID(), primaryAccession));
+                            existingReferenceGeneProductInstance.getDbId(), primaryAccession));
 
-                        dba.loadInstanceAttributeValues(existingReferenceGeneProductInstance);
-                        existingReferenceGeneProductInstance.addAttributeValue(
-                            ReactomeJavaConstants.modified, instanceEdit);
-
-                        updateInstance(existingReferenceGeneProductInstance, values, sequenceReportWriter);
+                        updateInstance(curatorToolAPI, existingReferenceGeneProductInstance, values, sequenceReportWriter);
 
                         duplicateFlag = true;
 
                         if (values.get(ReactomeJavaConstants.species).isEmpty()) {
-                            values.put(ReactomeJavaConstants.species, Collections.singletonList((GKInstance)
-                                existingReferenceGeneProductInstance.getAttributeValue(ReactomeJavaConstants.species))
+                            values.put(ReactomeJavaConstants.species, Collections.singletonList((SimpleInstance)
+                                existingReferenceGeneProductInstance.getAttribute(ReactomeJavaConstants.species))
                             );
                         }
                         for (String isoformId : isoformIds) {
                             if (isoformId.contains(primaryAccession)) {
-                                Collection<GKInstance> isoformInstances = dba.fetchInstanceByAttribute(
-                                    ReactomeJavaConstants.ReferenceIsoform,
-                                    ReactomeJavaConstants.variantIdentifier,
-                                    "=",
-                                    isoformId
-                                );
+                                List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformId);
                                 if (!isoformInstances.isEmpty()) {
-                                    for (GKInstance isoformInstance : isoformInstances) {
-                                        String isoformAccession = (String) isoformInstance.getAttributeValue(
+                                    for (SimpleInstance isoformInstance : isoformInstances) {
+                                        String isoformAccession = (String) isoformInstance.getAttribute(
                                             ReactomeJavaConstants.variantIdentifier);
                                         if (!isoformAccession.contains(primaryAccession)) {
                                             continue;
                                         }
                                         System.out.println(String.format("Existing isoform update: %s\tMaster: %d",
-                                            isoformAccession, existingReferenceGeneProductInstance.getDBID()));
+                                            isoformAccession, existingReferenceGeneProductInstance.getDbId()));
 
-                                        dba.loadInstanceAttributeValues(isoformInstance);
-                                        isoformInstance.setAttributeValue(ReactomeJavaConstants.isoformParent,
+                                        isoformInstance.setAttribute(ReactomeJavaConstants.isoformParent,
                                             existingReferenceGeneProductInstance);
-                                        isoformInstance.addAttributeValue(ReactomeJavaConstants.modified,
-                                            instanceEdit);
 
-                                        updateInstance(isoformInstance, values, sequenceReportWriter);
+                                        updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
 
                                         isoformAccessionToDbId.remove(isoformId);
                                     }
                                 } else {
-                                    GKInstance isoformInstance = new GKInstance(
-                                        dba.getSchema().getClassByName(ReactomeJavaConstants.ReferenceIsoform)
-                                    );
-                                    isoformInstance.setDbAdaptor(dba);
-                                    isoformInstance.setAttributeValue(ReactomeJavaConstants.identifier,
+                                    SimpleInstance isoformInstance = new SimpleInstance();
+                                    isoformInstance.setSchemaClassName(ReactomeJavaConstants.ReferenceIsoform);
+                                    isoformInstance.setAttribute(ReactomeJavaConstants.identifier,
                                         primaryAccession);
-                                    isoformInstance.setAttributeValue(ReactomeJavaConstants.isoformParent,
+                                    isoformInstance.setAttribute(ReactomeJavaConstants.isoformParent,
                                         existingReferenceGeneProductInstance);
-                                    isoformInstance.setAttributeValue(ReactomeJavaConstants.created,
-                                        instanceEdit);
-                                    isoformInstance.setAttributeValue(ReactomeJavaConstants.variantIdentifier,
+                                    isoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier,
                                         isoformId);
-                                    long isoformDbId = dba.storeInstance(isoformInstance);
+                                    long isoformDbId = curatorToolAPI.commit(isoformInstance).getDbId();
 
                                     System.out.println(String.format("New isoform: %s\t%d\tMaster: %d",
-                                        isoformId, isoformDbId, existingReferenceGeneProductInstance.getDBID()));
+                                        isoformId, isoformDbId, existingReferenceGeneProductInstance.getDbId()));
 
-                                    updateInstance(isoformInstance, values, sequenceReportWriter);
+                                    updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
                                 }
                             } else {
                                 misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
@@ -445,49 +400,38 @@ public class Main {
         System.out.println("All records in " + swissProtFileProcessor.getSwissProtFilePath() + " processed");
 
         System.out.println("Starting clean-up tasks after processing UniProt XML");
-        dba.startTransaction();
 
         System.out.println("Updating mis-matched isoforms");
 
         for (String misMatchedIsoformAccession : misMatchedIsoformAccessionToRGPAccession.keySet()) {
-            List<GKInstance> isoformParents = new ArrayList<>();
+            List<SimpleInstance> isoformParents = new ArrayList<>();
 
-            Iterator<GKInstance> isoformInstanceIterator = (dba.fetchInstanceByAttribute(
-                ReactomeJavaConstants.ReferenceIsoform,
-                ReactomeJavaConstants.variantIdentifier,
-                "=",
-                misMatchedIsoformAccession
-            )).iterator();
+            List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(misMatchedIsoformAccession);
 
-            GKInstance isoformInstance = isoformInstanceIterator.hasNext() ? isoformInstanceIterator.next() : null;
+            SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance != null) {
-                GKInstance isoformParent =
-                    (GKInstance) isoformInstance.getAttributeValue(ReactomeJavaConstants.isoformParent);
+                SimpleInstance isoformParent =
+                    (SimpleInstance) isoformInstance.getAttribute(ReactomeJavaConstants.isoformParent);
                 if (isoformParent == null) {
                     continue;
                 }
                 isoformParents.add(isoformParent);
             }
 
-            Iterator<GKInstance> mismatchedParentIterator = (dba.fetchInstanceByAttribute(
-                ReactomeJavaConstants.ReferenceGeneProduct,
-                ReactomeJavaConstants.identifier,
-                "=",
-                misMatchedIsoformAccessionToRGPAccession.get(misMatchedIsoformAccession)
-            )).iterator();
+            List<SimpleInstance> mismatchedParents = curatorToolAPI.getReferenceGeneProductsByIdentifier(misMatchedIsoformAccession);
 
-            GKInstance mismatchedParent = mismatchedParentIterator.hasNext() ? mismatchedParentIterator.next() : null;
+            SimpleInstance mismatchedParent = !mismatchedParents.isEmpty() ? mismatchedParents.get(0) : null;
             if (mismatchedParent != null && isoformInstance != null) {
                 isoformParents.add(mismatchedParent);
-                long isoformInstanceDbId = isoformInstance.getDBID();
+                long isoformInstanceDbId = isoformInstance.getDbId();
                 System.out.println(String.format("Mismatched parent: %s(%d)\t%s\n",
                     misMatchedIsoformAccession,
                     isoformInstanceDbId,
                     misMatchedIsoformAccessionToRGPAccession.get(misMatchedIsoformAccession))
                 );
 
-                isoformInstance.setAttributeValue(ReactomeJavaConstants.isoformParent, isoformParents);
-                dba.updateInstance(isoformInstance);
+                isoformInstance.setAttribute(ReactomeJavaConstants.isoformParent, isoformParents);
+                curatorToolAPI.commit(isoformInstance);
             }
         }
 
@@ -495,8 +439,8 @@ public class Main {
 
         System.out.println("Updating display names...");
 
-        updateDisplayNames(dba, ReactomeJavaConstants.ReferenceGeneProduct);
-        updateDisplayNames(dba, ReactomeJavaConstants.ReferenceIsoform);
+        curatorToolAPI.updateReferenceGeneProductDisplayNames();
+        //curatorToolAPI.updateReferenceIsoformDisplayNames();
 
         System.out.println("Done");
 
@@ -513,18 +457,14 @@ public class Main {
                 tremblAccessions.add(rgpAccession);
                 rgpAccessionsIterator.remove();
             } else {
-                Collection<GKInstance> obsoleteReferenceGeneProductInstances = dba.fetchInstanceByAttribute(
-                    ReactomeJavaConstants.ReferenceGeneProduct,
-                    ReactomeJavaConstants.identifier,
-                    "=",
-                    rgpAccession
-                );
+                List<SimpleInstance> obsoleteReferenceGeneProductInstances =
+                    curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
 
                 boolean isObsoleteRGPDeleted = false;
-                for (GKInstance obsoleteReferenceGeneProductInstance : obsoleteReferenceGeneProductInstances) {
+                for (SimpleInstance obsoleteReferenceGeneProductInstance : obsoleteReferenceGeneProductInstances) {
                     String variantIdentifier = null;
                     if (isAReferenceIsoform(obsoleteReferenceGeneProductInstance)) {
-                        variantIdentifier = (String) obsoleteReferenceGeneProductInstance.getAttributeValue(
+                        variantIdentifier = (String) obsoleteReferenceGeneProductInstance.getAttribute(
                             ReactomeJavaConstants.variantIdentifier);
                     }
 
@@ -532,11 +472,11 @@ public class Main {
                         continue;
                     }
 
-                    long obsoleteRGPDbId = obsoleteReferenceGeneProductInstance.getDBID();
-                    Collection<GKInstance> referrers = getRGPReferrers(obsoleteReferenceGeneProductInstance);
+                    long obsoleteRGPDbId = obsoleteReferenceGeneProductInstance.getDbId();
+                    List<SimpleInstance> referrers = getRGPReferrers(curatorToolAPI, obsoleteReferenceGeneProductInstance);
                     if (referrers == null || referrers.isEmpty()) {
                         System.out.println("Deleting " + obsoleteRGPDbId + "...");
-                        dba.deleteByDBID(obsoleteRGPDbId);
+                        curatorToolAPI.deleteInstance(obsoleteReferenceGeneProductInstance);
                         numberOfObsoleteInstancesWithNoEWAS += 1;
                         isObsoleteRGPDeleted = true;
                     }
@@ -553,38 +493,33 @@ public class Main {
         Iterator<String> isoformAccessionIterator = isoformAccessionToDbId.keySet().iterator();
         while (isoformAccessionIterator.hasNext()) {
             String isoformAccession = isoformAccessionIterator.next();
-            Iterator<GKInstance> isoformInstanceIterator = (dba.fetchInstanceByAttribute(
-                ReactomeJavaConstants.ReferenceIsoform,
-                ReactomeJavaConstants.variantIdentifier,
-                "=",
-                isoformAccession
-            )).iterator();
+            List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
 
-            GKInstance isoformInstance = isoformInstanceIterator.hasNext() ? isoformInstanceIterator.next() : null;
+            SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance == null) {
                 System.out.println(isoformAccession + " is not a variant identifier for any ReferenceIsoform");
                 continue;
             }
 
-            long obsoleteIsoformDbId = isoformInstance.getDBID();
-            GKInstance isoformParent =
-                (GKInstance) isoformInstance.getAttributeValue(ReactomeJavaConstants.isoformParent);
+            long obsoleteIsoformDbId = isoformInstance.getDbId();
+            SimpleInstance isoformParent =
+                (SimpleInstance) isoformInstance.getAttribute(ReactomeJavaConstants.isoformParent);
             if (isoformParent == null) {
-                System.out.println(isoformInstance.getDBID());
+                System.out.println(isoformInstance.getDbId());
                 dbIdsToSkip.add(obsoleteIsoformDbId);
                 continue;
             }
 
             String isoformParentIdentifier = (String)
-                isoformParent.getAttributeValue(ReactomeJavaConstants.identifier);
+                isoformParent.getAttribute(ReactomeJavaConstants.identifier);
             if (isoformParentIdentifier == null || isoformParentIdentifier.isEmpty()) {
                 continue;
             }
 
-            Collection<GKInstance> referrers = getRGPReferrers(isoformInstance);
+            List<SimpleInstance> referrers = getRGPReferrers(curatorToolAPI, isoformInstance);
             if (referrers == null || referrers.isEmpty()) {
                 System.out.println("Deleting " + obsoleteIsoformDbId + "...");
-                dba.deleteByDBID(obsoleteIsoformDbId);
+                curatorToolAPI.deleteInstance(isoformInstance);
                 numberOfObsoleteInstancesWithNoEWAS += 1;
                 isoformAccessionIterator.remove();
             }
@@ -637,30 +572,26 @@ public class Main {
                 List<Long> referrerDbIds = new ArrayList<>();
                 String speciesName;
 
-                Collection<GKInstance> obsoleteRGPInstances = dba.fetchInstanceByAttribute(
-                    ReactomeJavaConstants.ReferenceGeneProduct,
-                    ReactomeJavaConstants.identifier,
-                    "=",
-                    rgpAccession
-                );
-                for (GKInstance obsoleteRGPInstance : obsoleteRGPInstances) {
+                List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
+                for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                     String variantIdentifier = null;
                     if (isAReferenceIsoform(obsoleteRGPInstance)) {
-                        variantIdentifier = (String) obsoleteRGPInstance.getAttributeValue(
+                        variantIdentifier = (String) obsoleteRGPInstance.getAttribute(
                             ReactomeJavaConstants.variantIdentifier);
                     }
 
                     if (variantIdentifier != null) {
                         continue;
                     }
-                    obsoleteDbId = obsoleteRGPInstance.getDBID();
+                    obsoleteDbId = obsoleteRGPInstance.getDbId();
                     speciesName = getSpeciesName(obsoleteRGPInstance);
 
-                    List<GKInstance> referrers = emptyListIfNull((List<GKInstance>) obsoleteRGPInstance.getReferers(
-                        ReactomeJavaConstants.referenceEntity));
-                    for (GKInstance referrer : referrers) {
-                        if (referrer.getSchemClass().isa(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
-                            referrerDbIds.add(referrer.getDBID());
+                    List<SimpleInstance> referrers = emptyListIfNull(
+                        curatorToolAPI.getReferrers(obsoleteRGPInstance, ReactomeJavaConstants.referenceEntity)
+                    );
+                    for (SimpleInstance referrer : referrers) {
+                        if (referrer.getSchemaClassName().equals(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
+                            referrerDbIds.add(referrer.getDbId());
                         }
                     }
 
@@ -683,8 +614,8 @@ public class Main {
                         }
                         reportLineBuilder.append(String.format("|%s\n", rgpAccession));
                         reportLineBuilder.append(String.format(
-                            "|[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n",
-                            dba.getDBName(), obsoleteDbId, obsoleteDbId
+                            "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                            obsoleteDbId, obsoleteDbId
                             ));
                         reportLineBuilder.append(String.format("||%s\n", String.join(
                             "|", referrerDbIds.stream().map(Object::toString).collect(Collectors.toList())
@@ -728,38 +659,33 @@ public class Main {
             List<String> referrerIds = new ArrayList<>();
             String speciesName = "";
 
-            Collection<GKInstance> obsoleteRGPInstances = emptyListIfNull(dba.fetchInstanceByAttribute(
-                ReactomeJavaConstants.ReferenceGeneProduct,
-                ReactomeJavaConstants.identifier,
-                "=",
-                rgpAccession
-            ));
+            List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
 
-            for (GKInstance obsoleteRGPInstance : obsoleteRGPInstances) {
+            for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                 String variantIdentifier = null;
                 if (isAReferenceIsoform(obsoleteRGPInstance)) {
-                    variantIdentifier = (String) obsoleteRGPInstance.getAttributeValue(
+                    variantIdentifier = (String) obsoleteRGPInstance.getAttribute(
                         ReactomeJavaConstants.variantIdentifier);
                 }
 
                 if (variantIdentifier != null) {
                     continue;
                 }
-                obsoleteDbId = obsoleteRGPInstance.getDBID();
+                obsoleteDbId = obsoleteRGPInstance.getDbId();
                 speciesName = getSpeciesName(obsoleteRGPInstance);
 
-                List<GKInstance> referrers = emptyListIfNull(
-                    (List<GKInstance>) obsoleteRGPInstance.getReferers(ReactomeJavaConstants.referenceEntity));
-                for (GKInstance referrer : referrers) {
-                    if (referrer.getSchemClass().isa(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
-                        GKInstance referrerStableIdInstance =
-                            (GKInstance) referrer.getAttributeValue(ReactomeJavaConstants.stableIdentifier);
+                List<SimpleInstance> referrers =
+                    curatorToolAPI.getReferrers(obsoleteRGPInstance, ReactomeJavaConstants.referenceEntity);
+                for (SimpleInstance referrer : referrers) {
+                    if (referrer.getSchemaClassName().equals(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
+                        SimpleInstance referrerStableIdInstance =
+                            (SimpleInstance) referrer.getAttribute(ReactomeJavaConstants.stableIdentifier);
                         if (referrerStableIdInstance != null) {
                             String referrerStableId =
-                                (String) referrerStableIdInstance.getAttributeValue(ReactomeJavaConstants.identifier);
+                                (String) referrerStableIdInstance.getAttribute(ReactomeJavaConstants.identifier);
                             referrerIds.add(referrerStableId);
                         } else {
-                            referrerIds.add(referrer.getDBID().toString());
+                            referrerIds.add(referrer.getDbId().toString());
                         }
                     }
                 }
@@ -771,8 +697,8 @@ public class Main {
                 //reportLineBuilder.append("|\n");
                 reportLineBuilder.append(String.format("||%s\n", rgpAccession));
                 reportLineBuilder.append(String.format(
-                    "|[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n",
-                    dba.getDBName(), obsoleteDbId, obsoleteDbId
+                    "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                    obsoleteDbId, obsoleteDbId
                 ));
                 reportLineBuilder.append(String.format("||%s\n", String.join(
                     "|", referrerIds.stream().map(Object::toString).collect(Collectors.toList())
@@ -794,30 +720,25 @@ public class Main {
         }
 
         for (String isoformAccession : isoformAccessionToDbId.keySet()) {
-            Collection<GKInstance> isoformInstances = emptyListIfNull(dba.fetchInstanceByAttribute(
-                ReactomeJavaConstants.ReferenceIsoform,
-                ReactomeJavaConstants.variantIdentifier,
-                "=",
-                isoformAccession
-            ));
+            List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
             String speciesName;
-            for (GKInstance isoformInstance : isoformInstances) {
+            for (SimpleInstance isoformInstance : isoformInstances) {
                 List<String> referrerIds = new ArrayList<>();
-                long isoformInstanceDbId = isoformInstance.getDBID();
+                long isoformInstanceDbId = isoformInstance.getDbId();
                 speciesName = getSpeciesName(isoformInstance);
 
-                List<GKInstance> referrers = emptyListIfNull(
-                    (List<GKInstance>) isoformInstance.getReferers(ReactomeJavaConstants.referenceEntity));
-                for (GKInstance referrer : referrers) {
-                    if (referrer.getSchemClass().isa(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
-                        GKInstance referrerStableIdInstance =
-                            (GKInstance) referrer.getAttributeValue(ReactomeJavaConstants.stableIdentifier);
+                List<SimpleInstance> referrers =
+                    curatorToolAPI.getReferrers(isoformInstance, ReactomeJavaConstants.referenceEntity);
+                for (SimpleInstance referrer : referrers) {
+                    if (referrer.getSchemaClassName().equals(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
+                        SimpleInstance referrerStableIdInstance =
+                            (SimpleInstance) referrer.getAttribute(ReactomeJavaConstants.stableIdentifier);
                         if (referrerStableIdInstance != null) {
                             String referrerStableId =
-                                (String) referrerStableIdInstance.getAttributeValue(ReactomeJavaConstants.identifier);
+                                (String) referrerStableIdInstance.getAttribute(ReactomeJavaConstants.identifier);
                             referrerIds.add(referrerStableId);
                         } else {
-                            referrerIds.add(referrer.getDBID().toString());
+                            referrerIds.add(referrer.getDbId().toString());
                         }
                     }
                 }
@@ -827,8 +748,8 @@ public class Main {
                     //reportLineBuilder.append("|\n");
                     reportLineBuilder.append(String.format("||%s\n", isoformAccession));
                     reportLineBuilder.append(String.format(
-                        "|[https://curator.reactome.org/cgi-bin/instancebrowser?DB=%s&ID=%d& %d]\n",
-                        dba.getDBName(), isoformInstanceDbId, isoformInstanceDbId
+                        "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                        isoformInstanceDbId, isoformInstanceDbId
                     ));
                     reportLineBuilder.append(String.format("||%s\n", String.join(
                         "|", referrerIds.stream().map(Object::toString).collect(Collectors.toList())
@@ -932,24 +853,22 @@ public class Main {
                     continue NEXT;
                 }
 
-                dba.deleteByDBID(noReferrerDbId);
+                //dba.deleteByDBID(noReferrerDbId);
                 System.out.println("Deleting DBID: " + noReferrerDbId);
+                curatorToolAPI.deleteByDbId(noReferrerDbId);
             }
         }
 
         System.out.println("Checking for duplicate isoform instances...");
 
-        List<GKInstance> referenceIsoformUniProtInstances = emptyListIfNull((List<GKInstance>) (
-            dba.fetchInstancesByClass(ReactomeJavaConstants.ReferenceIsoform))
-            .stream()
-            .filter(isoform -> hasUniProtReferenceDatabase((GKInstance) isoform))
-            .collect(Collectors.toList()));
+        List<SimpleInstance> referenceIsoformUniProtInstances =
+            curatorToolAPI.fetchUniProtReferenceIsoformInstances();
 
         Map<String,List<Long>> variantIdentifierToDbId = new HashMap<>();
-        for (GKInstance referenceIsoformUniProtInstance : referenceIsoformUniProtInstances) {
+        for (SimpleInstance referenceIsoformUniProtInstance : referenceIsoformUniProtInstances) {
             String variantIdentifier =
-                (String) referenceIsoformUniProtInstance.getAttributeValue(ReactomeJavaConstants.variantIdentifier);
-            long isoformDbId = referenceIsoformUniProtInstance.getDBID();
+                (String) referenceIsoformUniProtInstance.getAttribute(ReactomeJavaConstants.variantIdentifier);
+            long isoformDbId = referenceIsoformUniProtInstance.getDbId();
 
             if (variantIdentifier == null || variantIdentifier.isEmpty()) {
                 System.out.println(String.format("ReferenceIsoform %s has no variant identifier", isoformDbId));
@@ -965,7 +884,6 @@ public class Main {
             }
         }
 
-        dba.commit();
         System.out.println("UniProt Update has completed");
         System.out.println("Total db instances: " + totalNumberOfDbInstances);
         System.out.println("Total SwissProt instances in file: " + numberOfInstancesInSwissProtFile);
@@ -987,68 +905,8 @@ public class Main {
         return this.uniprotUpdateDirectoryPath;
     }
 
-    @SuppressWarnings("unchecked")
-    private GKInstance getUniProtReferenceDatabase(MySQLAdaptor dba) throws Exception {
-        Collection<GKInstance> uniProtReferenceDatabaseInstances = dba.fetchInstanceByAttribute(
-            ReactomeJavaConstants.ReferenceDatabase, ReactomeJavaConstants.name, "=", "UniProt");
-
-        if (uniProtReferenceDatabaseInstances == null || uniProtReferenceDatabaseInstances.isEmpty()) {
-            throw new RuntimeException("Could not find UniProt Reference Database in " + dba);
-        }
-        return uniProtReferenceDatabaseInstances.iterator().next();
-    }
-
-    private GKInstance getInstanceEdit(MySQLAdaptor dba, String note) throws Exception {
-        GKInstance instanceEdit = new GKInstance(dba.getSchema().getClassByName(ReactomeJavaConstants.InstanceEdit));
-        instanceEdit.setDbAdaptor(dba);
-        instanceEdit.setAttributeValue(
-            ReactomeJavaConstants.author, getOrCreatePersonInstance(dba));
-        instanceEdit.setAttributeValue(ReactomeJavaConstants.note, note);
-        instanceEdit.setAttributeValue(ReactomeJavaConstants.dateTime, getCurrentDateTime());
-        InstanceDisplayNameGenerator.setDisplayName(instanceEdit);
-        dba.storeInstance(instanceEdit);
-        return instanceEdit;
-    }
-
-    @SuppressWarnings("unchecked")
-    private GKInstance getOrCreatePersonInstance(MySQLAdaptor dba) throws Exception {
-        final String personSurname = "Weiser";
-        final String personInitials = "JD";
-
-        Collection<GKInstance> personInstances = dba.fetchInstancesByClass(ReactomeJavaConstants.Person);
-        List<GKInstance> matchedPersonInstances = new ArrayList<>();
-        for (GKInstance personInstance : personInstances) {
-            String personInstanceSurname = (String) personInstance.getAttributeValue(ReactomeJavaConstants.surname);
-            String personInstanceInitials = (String) personInstance.getAttributeValue(ReactomeJavaConstants.initial);
-            if (personInstanceSurname != null && personInstanceSurname.equals(personSurname) &&
-                personInstanceInitials != null && personInstanceInitials.equals(personInitials)) {
-                matchedPersonInstances.add(personInstance);
-            }
-        }
-
-        if (!matchedPersonInstances.isEmpty()) {
-            return matchedPersonInstances.get(0);
-        } else {
-            GKInstance personInstance =
-                new GKInstance(dba.getSchema().getClassByName(ReactomeJavaConstants.Person));
-            personInstance.setAttributeValue(ReactomeJavaConstants.surname, personSurname);
-            personInstance.setAttributeValue(ReactomeJavaConstants.initial, personInitials);
-            InstanceDisplayNameGenerator.setDisplayName(personInstance);
-            dba.storeInstance(personInstance);
-            return personInstance;
-        }
-    }
-
-    private String getCurrentDateTime() {
-        return ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-    }
-
     private String getCurrentDate() {
         return ZonedDateTime.now().format(DateTimeFormatter.ofPattern("EEE MMM dd YYYY"));
-    }
-
-    private String getTodaysDate() {
-        return ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
     }
 
     private Map<Integer, String> getTaxonIdToSpeciesName() {
@@ -1068,54 +926,7 @@ public class Main {
         return taxonIdToSpeciesName;
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Long> getRGPAccessionToDbIdMap(MySQLAdaptor dba) throws Exception {
-        Collection<GKInstance> instances = dba.fetchInstanceByAttribute(
-            ReactomeJavaConstants.ReferenceGeneProduct,
-            ReactomeJavaConstants.referenceDatabase,
-            "=",
-            getUniProtReferenceDatabase(dba)
-        );
-
-        Map<String, Long> identifierToDbId = new HashMap<>();
-        for (GKInstance instance : instances) {
-            String identifier = (String) instance.getAttributeValue(ReactomeJavaConstants.identifier);
-
-            if (identifier != null && !identifier.isEmpty()) {
-                identifierToDbId.put(identifier, instance.getDBID());
-            }
-        }
-        return identifierToDbId;
-    }
-
-    private Map<String, Long> getIsoformAccessionToDbIdMap(MySQLAdaptor dba) throws Exception {
-        return getIdentifierToDbIdMap(
-            dba, ReactomeJavaConstants.ReferenceIsoform, ReactomeJavaConstants.variantIdentifier
-        );
-    }
-
-    private Map<String, Long> getRDSIdentifierToDbIdMap(MySQLAdaptor dba) throws Exception {
-        return getIdentifierToDbIdMap(
-            dba, ReactomeJavaConstants.ReferenceDNASequence, ReactomeJavaConstants.identifier
-        );
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Long> getIdentifierToDbIdMap(MySQLAdaptor dba, String className, String identifierAttribute) throws Exception {
-        Collection<GKInstance> instances = dba.fetchInstancesByClass(className);
-
-        Map<String, Long> identifierToDbId = new HashMap<>();
-        for (GKInstance instance : instances) {
-            String identifier = (String) instance.getAttributeValue(identifierAttribute);
-
-            if (identifier != null && !identifier.isEmpty()) {
-                identifierToDbId.put(identifier, instance.getDBID());
-            }
-        }
-        return identifierToDbId;
-    }
-
-    private List<String> getSkipList() throws IOException, URISyntaxException {
+    private List<String> getSkipList() {
         final BufferedReader skipListWithNoReplacement = getSkipListFileBufferedReader("skiplist_no_replacement.txt");
         final BufferedReader skipListWithReplacement = getSkipListFileBufferedReader("skiplist_with_replacement.txt");
 
@@ -1136,50 +947,16 @@ public class Main {
         return validUniProtIdLengths.contains(potentialUniProtId.length());
     }
 
-    private boolean isAReferenceIsoform(GKInstance rgpInstance) {
-        return rgpInstance.getSchemClass().isa(ReactomeJavaConstants.ReferenceIsoform);
+    private boolean isAReferenceIsoform(SimpleInstance rgpInstance) {
+        return rgpInstance.getSchemaClassName().equals(ReactomeJavaConstants.ReferenceIsoform);
     }
 
-    private GKInstance getSpeciesInstance(MySQLAdaptor dba, String speciesName, Map<String, GKInstance> speciesCache)
-        throws Exception {
-
-        if (speciesCache != null && speciesCache.get(speciesName) != null) {
-            return speciesCache.get(speciesName);
-        }
-
-        GKInstance speciesInstance = getExistingSpeciesInstance(dba, speciesName);
-        if (speciesInstance != null) {
-            return speciesInstance;
-        } else {
-            speciesInstance = createNewSpeciesInstance(dba, speciesName);
-            dba.storeInstance(speciesInstance);
-            return speciesInstance;
-        }
+    private SimpleInstance fetchReferenceDNASequenceByDbId(CuratorToolAPI curatorToolAPI, long referenceDNASequenceDbId) {
+        return curatorToolAPI.findByDbId(referenceDNASequenceDbId);
     }
 
-    @SuppressWarnings("unchecked")
-    private GKInstance getHumanEnsEMBLGeneReferenceDatabase(MySQLAdaptor dba) throws Exception {
-        Collection<GKInstance> ensEMBLHumanReferenceDatabaseInstances =
-            dba.fetchInstanceByAttribute(
-                ReactomeJavaConstants.ReferenceDatabase,
-                ReactomeJavaConstants.name,
-                "=",
-                "ENSEMBL"
-            );
-
-        if (ensEMBLHumanReferenceDatabaseInstances == null || ensEMBLHumanReferenceDatabaseInstances.isEmpty()) {
-            throw new RuntimeException("Could not get EnsEMBL human gene reference database from " + dba);
-        }
-
-        return ensEMBLHumanReferenceDatabaseInstances.iterator().next();
-    }
-
-    private GKInstance fetchReferenceDNASequenceByDbId(MySQLAdaptor dba, long referenceDNASequenceDbId) throws Exception {
-        return dba.fetchInstance(referenceDNASequenceDbId);
-    }
-
-    private boolean sameDbId(GKInstance instance1, GKInstance instance2) {
-        return instance1.getDBID().equals(instance2.getDBID());
+    private boolean sameDbId(SimpleInstance instance1, SimpleInstance instance2) {
+        return instance1.getDbId().equals(instance2.getDbId());
     }
 
     private boolean areDifferentLists(List<?> list1, List<?> list2) {
@@ -1264,29 +1041,32 @@ public class Main {
     }
 
     private void updateInstance(
-        GKInstance instance, Map<String, List<?>> values, BufferedWriter sequenceReportWriter) throws Exception {
+        CuratorToolAPI curatorToolAPI,
+        SimpleInstance instance,
+        Map<String, List<?>> values,
+        BufferedWriter sequenceReportWriter
+    ) throws Exception {
 
         boolean isInstanceChanged = false;
         for (String attributeName : values.keySet()) {
             List<?> newValuesForAttribute =
                 values.get(attributeName).stream().filter(Objects::nonNull).collect(Collectors.toList());
-            if (newValuesForAttribute.size() == 0) {
-                System.out.println("WARNING: No new values for " + attributeName + " on " + instance.getDBID() +
+            if (newValuesForAttribute.isEmpty()) {
+                System.out.println("WARNING: No new values for " + attributeName + " on " + instance.getDbId() +
                     " skipping attribute update");
                 continue;
             }
 
             if (attributeName.toLowerCase().equals(ReactomeJavaConstants.checksum)) {
-                Boolean oldSequenceChangedValue =
-                    (Boolean) instance.getAttributeValue("isSequenceChanged");
+                Boolean oldSequenceChangedValue = (Boolean) instance.getAttribute("isSequenceChanged");
 
                 Boolean newSequenceChangedValue =
                     getNewIsSequenceChangedAttributeValue(instance, newValuesForAttribute);
 
                 if (oldSequenceChangedValue == null || !oldSequenceChangedValue.equals(newSequenceChangedValue)) {
-                    instance.setAttributeValue("isSequenceChanged", newSequenceChangedValue);
+                    instance.setAttribute("isSequenceChanged", newSequenceChangedValue);
                     System.out.println(String.format("%s (%d) has a new is_sequence_changed value",
-                        instance.getDisplayName(), instance.getDBID()));
+                        instance.getDisplayName(), instance.getDbId()));
                     isInstanceChanged = true;
                 }
             }
@@ -1295,47 +1075,19 @@ public class Main {
                 boolean chainChangeLogUpdated =
                     updateChainLog(instance, (List<String>) newValuesForAttribute, sequenceReportWriter);
                 if (hasChains(instance) && chainChangeLogUpdated) {
-                    List<GKInstance> ewasInstances = getAllEwasInstances(instance);
+                    List<SimpleInstance> ewasInstances = getAllEwasInstances(curatorToolAPI, instance);
 
-                    for (GKInstance ewasInstance : ewasInstances) {
+                    for (SimpleInstance ewasInstance : ewasInstances) {
                         reportChangedChainForEWASInstance(instance, ewasInstance);
                     }
-                    /*
-                    Collection<GKInstance> allEwasInstances = new ArrayList<>();
-                    Collection<GKInstance> referenceEntityEwasInstances =
-                        instance.getReferers(ReactomeJavaConstants.referenceEntity);
-                    if (referenceEntityEwasInstances != null) {
-                        allEwasInstances.addAll(referenceEntityEwasInstances);
-                    }
-                    Collection<GKInstance> hasModifiedResidueInstances = new ArrayList<>();
-                    Collection<GKInstance> referenceSequenceModifiedResidues =
-                        instance.getReferers(ReactomeJavaConstants.referenceSequence);
-                    if (referenceSequenceModifiedResidues != null) {
-                        hasModifiedResidueInstances.addAll(referenceSequenceModifiedResidues);
-                    }
-
-                    Collection<GKInstance> secondReferenceSequenceModifiedResidues =
-                        instance.getReferers(ReactomeJavaConstants.secondReferenceSequence);
-                    if (secondReferenceSequenceModifiedResidues != null) {
-                        hasModifiedResidueInstances.addAll(secondReferenceSequenceModifiedResidues);
-                    }
-
-                    for (GKInstance hasModifiedResidueInstance : hasModifiedResidueInstances) {
-                        Collection<GKInstance> hasModifiedEwasInstances =
-                            hasModifiedResidueInstance.getReferers(ReactomeJavaConstants.hasModifiedResidue);
-                        if (hasModifiedEwasInstances != null) {
-                            allEwasInstances.addAll(hasModifiedEwasInstances);
-                        }
-                    }
-*/
                 }
             }
 
             if (valuesChanged(instance, attributeName, newValuesForAttribute)) {
                 if (isSingleAttribute(attributeName)) {
-                    instance.setAttributeValue(attributeName, newValuesForAttribute.get(0));
+                    instance.setAttribute(attributeName, newValuesForAttribute.get(0));
                 } else {
-                    instance.setAttributeValue(attributeName, newValuesForAttribute);
+                    instance.setAttribute(attributeName, newValuesForAttribute);
                 }
 
                 isInstanceChanged = true;
@@ -1343,17 +1095,12 @@ public class Main {
         }
 
         if (isInstanceChanged) {
-            MySQLAdaptor dba = (MySQLAdaptor) instance.getDbAdaptor();
-            if (instance.getDBID() == null) {
-                dba.storeInstance(instance);
-            } else {
-                dba.updateInstance(instance);
-            }
+            curatorToolAPI.commit(instance);
         }
     }
 
-    private Boolean getNewIsSequenceChangedAttributeValue(GKInstance instance, List<?> newValues) throws Exception {
-        String oldChecksum = (String) instance.getAttributeValue(ReactomeJavaConstants.checksum);
+    private Boolean getNewIsSequenceChangedAttributeValue(SimpleInstance instance, List<?> newValues) {
+        String oldChecksum = (String) instance.getAttribute(ReactomeJavaConstants.checksum);
         String newChecksum = newValues.get(0).toString();
 
         return isSequenceChanged(oldChecksum, newChecksum);
@@ -1364,66 +1111,66 @@ public class Main {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean updateChainLog(GKInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter)
+    private boolean updateChainLog(SimpleInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter)
         throws Exception {
         boolean chainLogChanged = false;
 
-        List<String> oldChainValues = instance.getAttributeValuesList(ReactomeJavaConstants.chain);
+        List<String> oldChainValues = (List<String>) instance.getAttribute(ReactomeJavaConstants.chain);
         String date = getCurrentDate();
 
         String referenceGeneProductDescription = getReferenceGeneProductDescription(instance);
 
         for (String oldChainValue : oldChainValues) {
             if (!newChainValues.contains(oldChainValue)) {
-                String logEntry = String.format("%s for %d removed on %s", oldChainValue, instance.getDBID(), date);
+                String logEntry = String.format("%s for %d removed on %s", oldChainValue, instance.getDbId(), date);
                 sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
-                String existingLog = (String) instance.getAttributeValue("_chainChangeLog");
+                String existingLog = (String) instance.getAttribute("_chainChangeLog");
                 String fullLog =
                     existingLog != null ?
                     existingLog + ";" + logEntry :
                     logEntry;
 
-                instance.addAttributeValue("_chainChangeLog", fullLog);
-                System.out.println("old chain removed for " + instance.getDBID());
+                instance.setAttribute("_chainChangeLog", fullLog);
+                System.out.println("old chain removed for " + instance.getDbId());
                 chainLogChanged = true;
             }
         }
 
         for (String newChainValue : newChainValues) {
             if (!oldChainValues.contains(newChainValue)) {
-                String logEntry = String.format("%s for %d added on %s", newChainValue, instance.getDBID(), date);
+                String logEntry = String.format("%s for %d added on %s", newChainValue, instance.getDbId(), date);
                 sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
 
-                String existingLog = (String) instance.getAttributeValue("_chainChangeLog");
+                String existingLog = (String) instance.getAttribute("_chainChangeLog");
                 String fullLog =
                     existingLog != null ?
                         existingLog + ";" + logEntry :
                         logEntry;
 
-                instance.addAttributeValue("_chainChangeLog", fullLog);
-                System.out.println("new chain added for " + instance.getDBID());
+                instance.setAttribute("_chainChangeLog", fullLog);
+                System.out.println("new chain added for " + instance.getDbId());
                 chainLogChanged = true;
             }
         }
         return chainLogChanged;
     }
 
-    private boolean hasChains(GKInstance instance) throws Exception {
-        List<String> chainValues = instance.getAttributeValuesList(ReactomeJavaConstants.chain);
+    private boolean hasChains(SimpleInstance instance) {
+        List<String> chainValues = (List<String>) instance.getAttribute(ReactomeJavaConstants.chain);
         return chainValues != null && !chainValues.isEmpty();
     }
 
-    private String getReferenceGeneProductDescription(GKInstance rgpInstance) throws Exception {
-        String referenceGeneProductDescription = rgpInstance.getDBID() != null ? rgpInstance.getDBID().toString() : "";
+    private String getReferenceGeneProductDescription(SimpleInstance rgpInstance) {
+        String referenceGeneProductDescription = rgpInstance.getDbId() != null ? rgpInstance.getDbId().toString() : "";
 
-        String rgpName = (String) rgpInstance.getAttributeValue(ReactomeJavaConstants.name);
+        String rgpName = (String) rgpInstance.getAttribute(ReactomeJavaConstants.name);
         if (rgpName != null && !rgpName.isEmpty()) {
             referenceGeneProductDescription += " - " + rgpName;
         }
 
-        GKInstance speciesInstance = (GKInstance) rgpInstance.getAttributeValue(ReactomeJavaConstants.species);
+        SimpleInstance speciesInstance = (SimpleInstance) rgpInstance.getAttribute(ReactomeJavaConstants.species);
         if (speciesInstance != null) {
             referenceGeneProductDescription += " (" + speciesInstance.getDisplayName() + ")";
         }
@@ -1431,33 +1178,46 @@ public class Main {
         return referenceGeneProductDescription;
     }
 
-    private boolean valuesChanged(GKInstance instance, String attributeName, List<?> newValues) throws Exception {
-        List<?> currentValuesToCompare;
-        List<?> newValuesToCompare;
-
-        List<?> currentValues = instance.getAttributeValuesList(attributeName);
-
-        if (instance.getSchemClass().getAttribute(attributeName).isInstanceTypeAttribute()) {
-            currentValuesToCompare = currentValues.stream()
-                .map(inst -> ((GKInstance) inst).getDBID()).collect(Collectors.toList());
-            newValuesToCompare = newValues.stream()
-                .map(inst -> ((GKInstance) inst).getDBID()).collect(Collectors.toList());
-        } else {
-            currentValuesToCompare = currentValues.stream().map(Object::toString).collect(Collectors.toList());
-            newValuesToCompare = newValues.stream().map(Object::toString).collect(Collectors.toList());
-        }
+    private boolean valuesChanged(SimpleInstance instance, String attributeName, List<?> newValues) {
+        List<String> currentValuesToCompare = toComparableValues(getAttributeValues(instance, attributeName));
+        List<String> newValuesToCompare = toComparableValues(newValues);
 
         if (!areDifferentLists(currentValuesToCompare, newValuesToCompare)) {
             return false;
         }
 
-        System.out.println(String.format("%s changed for instance %d", attributeName, instance.getDBID()));
-        System.out.println(String.format("old attribute values - %s",
-            currentValuesToCompare.stream().map(Object::toString).collect(Collectors.joining(","))));
-        System.out.println(String.format("new attribute values - %s",
-            newValuesToCompare.stream().map(Object::toString).collect(Collectors.joining(","))));
+        System.out.println(String.format("%s changed for instance %d", attributeName, instance.getDbId()));
+        System.out.println(String.format("old attribute values - %s", String.join(",", currentValuesToCompare)));
+        System.out.println(String.format("new attribute values - %s", String.join(",", newValuesToCompare)));
 
         return true;
+    }
+
+    /**
+     * SimpleInstance holds a single-valued attribute as the value itself, a multi-valued attribute as a List, and
+     * returns null for an attribute with no value, so every read is normalized to a list here.
+     */
+    private List<Object> getAttributeValues(SimpleInstance instance, String attributeName) {
+        Object value = instance.getAttribute(attributeName);
+        if (value == null) {
+            return Collections.emptyList();
+        }
+        return value instanceof List ? new ArrayList<>((List<?>) value) : Collections.singletonList(value);
+    }
+
+    private List<String> toComparableValues(List<?> values) {
+        return values.stream().map(this::toComparableValue).collect(Collectors.toList());
+    }
+
+    /**
+     * SimpleInstance carries no schema, so there is nothing to ask whether the attribute is instance-typed; it is
+     * decided per value instead. An instance value is compared by dbId and anything else by its string form, which
+     * also keeps an Integer and a Long holding the same number from reading as a change.
+     */
+    private String toComparableValue(Object value) {
+        return value instanceof SimpleInstance ?
+            String.valueOf(((SimpleInstance) value).getDbId()) :
+            value.toString();
     }
 
     private boolean isSingleAttribute(String attributeName) {
@@ -1469,51 +1229,17 @@ public class Main {
         ).contains(attributeName);
     }
 
-    private String getSpeciesName(GKInstance instance) throws Exception {
-        GKInstance species = (GKInstance) instance.getAttributeValue(ReactomeJavaConstants.species);
+    private String getSpeciesName(SimpleInstance instance) {
+        SimpleInstance species = (SimpleInstance) instance.getAttribute(ReactomeJavaConstants.species);
         if (species != null) {
             return species.getDisplayName();
         }
         return "";
     }
 
-    private boolean hasUniProtReferenceDatabase(GKInstance instance) {
-        GKInstance referenceDatabase;
-        try {
-            referenceDatabase = (GKInstance) instance.getAttributeValue(ReactomeJavaConstants.referenceDatabase);
-        } catch (Exception e) {
-            throw new RuntimeException("Unable to fetch reference databases from " + instance);
-        }
-
-        return referenceDatabase != null && referenceDatabase.getDisplayName().toLowerCase().contains("uniprot");
-    }
-
     @SuppressWarnings("unchecked")
-    private GKInstance getExistingSpeciesInstance(MySQLAdaptor dba, String speciesName) throws Exception {
-        Collection<GKInstance> speciesInstances = dba.fetchInstanceByAttribute(
-            ReactomeJavaConstants.Species,
-            ReactomeJavaConstants.name,
-            "=",
-            speciesName
-        );
-
-        if (speciesInstances == null) {
-            return null;
-        }
-        return speciesInstances.iterator().next();
-    }
-
-    private GKInstance createNewSpeciesInstance(MySQLAdaptor dba, String speciesName) throws Exception {
-        GKInstance speciesInstance = new GKInstance(dba.getSchema().getClassByName(ReactomeJavaConstants.Species));
-        speciesInstance.setDbAdaptor(dba);
-        speciesInstance.setAttributeValue(ReactomeJavaConstants.name, speciesName);
-        InstanceDisplayNameGenerator.setDisplayName(speciesInstance);
-        return speciesInstance;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Collection<GKInstance> getRGPReferrers(GKInstance rgpInstance) throws Exception {
-        Collection<GKInstance> referrers = new ArrayList<>();
+    private List<SimpleInstance> getRGPReferrers(CuratorToolAPI curatorToolAPI, SimpleInstance rgpInstance) throws Exception {
+        List<SimpleInstance> referrers = new ArrayList<>();
 
         final List<String> reverseAttributes = Arrays.asList(
             ReactomeJavaConstants.referenceEntity,
@@ -1523,7 +1249,8 @@ public class Main {
         );
 
         for (String reverseAttribute : reverseAttributes) {
-            Collection<GKInstance> reverseAttributeReferrers = rgpInstance.getReferers(reverseAttribute);
+            List<SimpleInstance> reverseAttributeReferrers =
+                curatorToolAPI.getReferrers(rgpInstance, reverseAttribute);
             if (reverseAttributeReferrers != null) {
                 referrers.addAll(reverseAttributeReferrers);
             }
@@ -1616,39 +1343,33 @@ public class Main {
         return featureType + ":" + chainStart + "-" + chainEnd;
     }
 
-    @SuppressWarnings("unchecked")
-    private void updateDisplayNames(MySQLAdaptor dba, String className) throws Exception {
-        Collection<GKInstance> instances = dba.fetchInstancesByClass(className);
-        for (GKInstance instance : instances) {
-            InstanceDisplayNameGenerator.setDisplayName(instance);
-            dba.updateInstanceAttribute(instance, ReactomeJavaConstants._displayName);
-        }
-    }
 
-    private List<GKInstance> getAllEwasInstances(GKInstance referenceGeneProduct) throws Exception {
-        List<GKInstance> allEwasInstances = new ArrayList<>();
 
-        Collection<GKInstance> referenceEntityEwasInstances =
-            referenceGeneProduct.getReferers(ReactomeJavaConstants.referenceEntity);
+    private List<SimpleInstance> getAllEwasInstances(CuratorToolAPI curatorToolAPI, SimpleInstance referenceGeneProduct) throws Exception {
+        List<SimpleInstance> allEwasInstances = new ArrayList<>();
+
+        List<SimpleInstance> referenceEntityEwasInstances =
+            curatorToolAPI.getReferrers(referenceGeneProduct, ReactomeJavaConstants.referenceEntity);
         if (referenceEntityEwasInstances != null) {
             allEwasInstances.addAll(referenceEntityEwasInstances);
         }
-        Collection<GKInstance> hasModifiedResidueInstances = new ArrayList<>();
-        Collection<GKInstance> referenceSequenceModifiedResidues =
-            referenceGeneProduct.getReferers(ReactomeJavaConstants.referenceSequence);
+        List<SimpleInstance> hasModifiedResidueInstances = new ArrayList<>();
+        List<SimpleInstance> referenceSequenceModifiedResidues =
+            curatorToolAPI.getReferrers(referenceGeneProduct, ReactomeJavaConstants.referenceSequence);
+
         if (referenceSequenceModifiedResidues != null) {
             hasModifiedResidueInstances.addAll(referenceSequenceModifiedResidues);
         }
 
-        Collection<GKInstance> secondReferenceSequenceModifiedResidues =
-            referenceGeneProduct.getReferers(ReactomeJavaConstants.secondReferenceSequence);
+        List<SimpleInstance> secondReferenceSequenceModifiedResidues =
+            curatorToolAPI.getReferrers(referenceGeneProduct, ReactomeJavaConstants.secondReferenceSequence);
         if (secondReferenceSequenceModifiedResidues != null) {
             hasModifiedResidueInstances.addAll(secondReferenceSequenceModifiedResidues);
         }
 
-        for (GKInstance hasModifiedResidueInstance : hasModifiedResidueInstances) {
-            Collection<GKInstance> hasModifiedEwasInstances =
-                hasModifiedResidueInstance.getReferers(ReactomeJavaConstants.hasModifiedResidue);
+        for (SimpleInstance hasModifiedResidueInstance : hasModifiedResidueInstances) {
+            List<SimpleInstance> hasModifiedEwasInstances =
+                curatorToolAPI.getReferrers(hasModifiedResidueInstance, ReactomeJavaConstants.hasModifiedResidue);
             if (hasModifiedEwasInstances != null) {
                 allEwasInstances.addAll(hasModifiedEwasInstances);
             }
@@ -1657,13 +1378,13 @@ public class Main {
         return allEwasInstances;
     }
 
-    private void reportChangedChainForEWASInstance(GKInstance referenceGeneProduct, GKInstance ewas)
+    private void reportChangedChainForEWASInstance(SimpleInstance referenceGeneProduct, SimpleInstance ewas)
         throws Exception {
         //"RGP db id\tRGP Accession\tEWAS db id\tEWAS name\tEWAS author (created or last modified)\t"
         String reportLine = String.join("\t",
-            referenceGeneProduct.getDBID().toString(),
-            (String) referenceGeneProduct.getAttributeValue(ReactomeJavaConstants.identifier),
-            ewas.getDBID().toString(),
+            referenceGeneProduct.getDbId().toString(),
+            (String) referenceGeneProduct.getAttribute(ReactomeJavaConstants.identifier),
+            ewas.getDbId().toString(),
             ewas.getDisplayName(),
             getAuthor(ewas)
         ).concat(System.lineSeparator());
@@ -1675,8 +1396,8 @@ public class Main {
         );
     }
 
-    private String getAuthor(GKInstance ewas) throws Exception {
-        GKInstance ewasCreatedInstanceEdit = (GKInstance) ewas.getAttributeValue(ReactomeJavaConstants.created);
+    private String getAuthor(SimpleInstance ewas) throws Exception {
+        SimpleInstance ewasCreatedInstanceEdit = (SimpleInstance) ewas.getAttribute(ReactomeJavaConstants.created);
         if (ewasCreatedInstanceEdit != null) {
             return getAuthorFromInstanceEdit(ewasCreatedInstanceEdit);
         } else {
@@ -1684,18 +1405,18 @@ public class Main {
         }
     }
 
-    private String getLastModifiedAuthor(GKInstance ewas) throws Exception {
-        List<GKInstance> ewasModifiedInstanceEdits = ewas.getAttributeValuesList(ReactomeJavaConstants.modified);
+    private String getLastModifiedAuthor(SimpleInstance ewas) throws Exception {
+        List<SimpleInstance> ewasModifiedInstanceEdits = (List<SimpleInstance>) ewas.getAttribute(ReactomeJavaConstants.modified);
         if (ewasModifiedInstanceEdits != null && !ewasModifiedInstanceEdits.isEmpty()) {
-            GKInstance ewasMostRecentModifiedInstanceEdit = ewasModifiedInstanceEdits.get(0);
+            SimpleInstance ewasMostRecentModifiedInstanceEdit = ewasModifiedInstanceEdits.get(0);
             return getAuthorFromInstanceEdit(ewasMostRecentModifiedInstanceEdit);
         } else {
             return "Unknown author";
         }
     }
 
-    private String getAuthorFromInstanceEdit(GKInstance instanceEdit) throws Exception {
-        GKInstance instanceEditAuthor = (GKInstance) instanceEdit.getAttributeValue(ReactomeJavaConstants.author);
+    private String getAuthorFromInstanceEdit(SimpleInstance instanceEdit) throws Exception {
+        SimpleInstance instanceEditAuthor = (SimpleInstance) instanceEdit.getAttribute(ReactomeJavaConstants.author);
         if (instanceEditAuthor != null) {
             return instanceEditAuthor.getDisplayName();
         } else {

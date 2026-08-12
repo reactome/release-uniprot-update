@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
-import static org.reactome.release.Utils.isTrEMBLId;
+import static org.reactome.release.utils.Utils.isTrEMBLId;
 
 /**
  * @author Joel Weiser (joel.weiser@oicr.on.ca)

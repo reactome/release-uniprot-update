@@ -1,6 +1,7 @@
 package org.reactome.release;
 
 import org.junit.Test;
+import org.reactome.release.utils.Utils;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;

@@ -1,4 +1,4 @@
-package org.reactome.release;
+package org.reactome.release.utils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
