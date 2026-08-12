@@ -1122,7 +1122,10 @@ public class Main {
         throws Exception {
         boolean chainLogChanged = false;
 
-        List<String> oldChainValues = (List<String>) instance.getAttribute(ReactomeJavaConstants.chain);
+        // getAttribute returns null for an instance with no chain values (e.g. one created by this run), so the
+        // list is defaulted here rather than dereferenced below.
+        List<String> oldChainValues =
+            emptyListIfNull((List<String>) instance.getAttribute(ReactomeJavaConstants.chain));
         String date = getCurrentDate();
 
         String referenceGeneProductDescription = getReferenceGeneProductDescription(instance);
@@ -1165,8 +1168,7 @@ public class Main {
     }
 
     private boolean hasChains(SimpleInstance instance) {
-        List<String> chainValues = (List<String>) instance.getAttribute(ReactomeJavaConstants.chain);
-        return chainValues != null && !chainValues.isEmpty();
+        return !getAttributeValues(instance, ReactomeJavaConstants.chain).isEmpty();
     }
 
     private String getReferenceGeneProductDescription(SimpleInstance rgpInstance) {
