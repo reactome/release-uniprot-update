@@ -238,7 +238,8 @@ public class Main {
                         referenceDNASequenceReportWriter.write("Multiple gene ids -- " +
                             String.join("\t", primaryAccession, name, uniqueEnsEMBLGeneIds.toString()) + "\n");
                     }
-                    SimpleInstance humanEnsEMBLGeneReferenceDatabase = curatorToolAPI.getHumanEnsEMBLGeneReferenceDatabase();
+                    SimpleInstance humanEnsEMBLGeneReferenceDatabase =
+                        curatorToolAPI.getHumanEnsEMBLGeneReferenceDatabase();
 
                     for (String ensEMBLGeneId : uniqueEnsEMBLGeneIds) {
                         SimpleInstance referenceDNASequence;
@@ -288,7 +289,8 @@ public class Main {
                                     "Updating existing reference DNA sequence for " + ensEMBLGeneId + " with db_id " +
                                     rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n"
                                 );
-                                referenceDNASequence.setDisplayName(curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
+                                referenceDNASequence.setDisplayName(
+                                    curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
                                 curatorToolAPI.commit(referenceDNASequence);
                             }
                         } else {
@@ -310,7 +312,8 @@ public class Main {
                             referenceDNASequence.setAttribute(ReactomeJavaConstants.geneName, geneNames);
                             referenceDNASequence.setAttribute(ReactomeJavaConstants.species, speciesInstance);
 
-                            referenceDNASequence.setDisplayName(curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
+                            referenceDNASequence.setDisplayName(
+                                curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
 
                             long referenceDNASequenceDbId = curatorToolAPI.commit(referenceDNASequence).getDbId();
                             referenceDNASequenceReportWriter.write("Reference DNA sequence with db_id " +
@@ -375,7 +378,8 @@ public class Main {
                         updateInstance(curatorToolAPI, newIsoformInstance, values, sequenceReportWriter);
                     }
                 } else {
-                    Collection<SimpleInstance> existingReferenceGeneProductInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(primaryAccession);
+                    Collection<SimpleInstance> existingReferenceGeneProductInstances =
+                        curatorToolAPI.getReferenceGeneProductsByIdentifier(primaryAccession);
                     boolean duplicateFlag = false;
                     for (SimpleInstance existingReferenceGeneProductInstance : existingReferenceGeneProductInstances) {
                         if (isAReferenceIsoform(existingReferenceGeneProductInstance)) {
@@ -391,7 +395,8 @@ public class Main {
                         System.out.println(String.format("Updating master sequence...%d\t%s",
                             existingReferenceGeneProductInstance.getDbId(), primaryAccession));
 
-                        updateInstance(curatorToolAPI, existingReferenceGeneProductInstance, values, sequenceReportWriter);
+                        updateInstance(
+                            curatorToolAPI, existingReferenceGeneProductInstance, values, sequenceReportWriter);
 
                         duplicateFlag = true;
 
@@ -405,7 +410,8 @@ public class Main {
                         }
                         for (String isoformId : isoformIds) {
                             if (isoformId.contains(primaryAccession)) {
-                                List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformId);
+                                List<SimpleInstance> isoformInstances =
+                                    curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformId);
                                 if (!isoformInstances.isEmpty()) {
                                     for (SimpleInstance isoformInstance : isoformInstances) {
                                         String isoformAccession = (String) isoformInstance.getAttribute(
@@ -468,7 +474,8 @@ public class Main {
         for (String misMatchedIsoformAccession : misMatchedIsoformAccessionToRGPAccession.keySet()) {
             List<SimpleInstance> isoformParents = new ArrayList<>();
 
-            List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(misMatchedIsoformAccession);
+            List<SimpleInstance> isoformInstances =
+                curatorToolAPI.getReferenceIsoformByVariantIdentifier(misMatchedIsoformAccession);
 
             SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance != null) {
@@ -482,7 +489,8 @@ public class Main {
                 existingParents.forEach(existingParent -> isoformParents.add((SimpleInstance) existingParent));
             }
 
-            List<SimpleInstance> mismatchedParents = curatorToolAPI.getReferenceGeneProductsByIdentifier(misMatchedIsoformAccession);
+            List<SimpleInstance> mismatchedParents =
+                curatorToolAPI.getReferenceGeneProductsByIdentifier(misMatchedIsoformAccession);
 
             SimpleInstance mismatchedParent = !mismatchedParents.isEmpty() ? mismatchedParents.get(0) : null;
             if (mismatchedParent != null && isoformInstance != null) {
@@ -537,7 +545,8 @@ public class Main {
                     }
 
                     long obsoleteRGPDbId = obsoleteReferenceGeneProductInstance.getDbId();
-                    List<SimpleInstance> referrers = getRGPReferrers(curatorToolAPI, obsoleteReferenceGeneProductInstance);
+                    List<SimpleInstance> referrers =
+                        getRGPReferrers(curatorToolAPI, obsoleteReferenceGeneProductInstance);
                     if (referrers == null || referrers.isEmpty()) {
                         System.out.println("Deleting " + obsoleteRGPDbId + "...");
                         curatorToolAPI.deleteInstance(obsoleteReferenceGeneProductInstance);
@@ -550,14 +559,16 @@ public class Main {
                 }
             }
         }
-        Reportable trEMBLAccessionReport = new TrEMBLAccessionReport(getUniprotUpdateDirectoryPath(), tremblAccessions);
+        Reportable trEMBLAccessionReport =
+            new TrEMBLAccessionReport(getUniprotUpdateDirectoryPath(), tremblAccessions);
         trEMBLAccessionReport.writeReport();
 
         List<Long> dbIdsToSkip = new ArrayList<>();
         Iterator<String> isoformAccessionIterator = isoformAccessionToDbId.keySet().iterator();
         while (isoformAccessionIterator.hasNext()) {
             String isoformAccession = isoformAccessionIterator.next();
-            List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
+            List<SimpleInstance> isoformInstances =
+                curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
 
             SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance == null) {
@@ -628,7 +639,8 @@ public class Main {
                 List<String> alternateAccessions = secondaryAccessionToPrimaryAccessionList.get(rgpAccession);
                 isSecondaryAccession = true;
 
-                List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
+                List<SimpleInstance> obsoleteRGPInstances =
+                    curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
                 for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                     String variantIdentifier = null;
                     if (isAReferenceIsoform(obsoleteRGPInstance)) {
@@ -719,7 +731,8 @@ public class Main {
         for (String rgpAccession : rgpAccessionToDbId.keySet()) {
             System.out.println(rgpAccession);
 
-            List<SimpleInstance> obsoleteRGPInstances = curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
+            List<SimpleInstance> obsoleteRGPInstances =
+                curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
 
             for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                 String variantIdentifier = null;
@@ -787,7 +800,8 @@ public class Main {
         }
 
         for (String isoformAccession : isoformAccessionToDbId.keySet()) {
-            List<SimpleInstance> isoformInstances = curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
+            List<SimpleInstance> isoformInstances =
+                curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
             String speciesName;
             for (SimpleInstance isoformInstance : isoformInstances) {
                 List<String> referrerIds = new ArrayList<>();
@@ -1031,7 +1045,8 @@ public class Main {
         return rgpInstance.getSchemaClassName().equals(ReactomeJavaConstants.ReferenceIsoform);
     }
 
-    private SimpleInstance fetchReferenceDNASequenceByDbId(CuratorToolAPI curatorToolAPI, long referenceDNASequenceDbId) {
+    private SimpleInstance fetchReferenceDNASequenceByDbId(
+        CuratorToolAPI curatorToolAPI, long referenceDNASequenceDbId) {
         return curatorToolAPI.findByDbId(referenceDNASequenceDbId);
     }
 
@@ -1097,7 +1112,8 @@ public class Main {
             if (getError(httpURLConnection).contains("not found")) {
                 return "";
             } else {
-                System.out.println(String.format("Bad request for %s:  Sleeping for 5 seconds and retrying", ensemblLookupURL));
+                System.out.println(String.format(
+                    "Bad request for %s:  Sleeping for 5 seconds and retrying", ensemblLookupURL));
                 Thread.sleep(5000);
             }
 
@@ -1213,8 +1229,9 @@ public class Main {
      * @return true if any chain value was added or removed, false if the chain values are unchanged.
      */
     @SuppressWarnings("unchecked")
-    private boolean updateChainLog(SimpleInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter)
-        throws Exception {
+    private boolean updateChainLog(
+        SimpleInstance instance, List<String> newChainValues, BufferedWriter sequenceReportWriter
+    ) throws Exception {
         boolean chainLogChanged = false;
 
         // getAttribute returns null for an instance with no chain values (e.g. one created by this run), so the
@@ -1322,7 +1339,8 @@ public class Main {
     }
 
     @SuppressWarnings("unchecked")
-    private List<SimpleInstance> getRGPReferrers(CuratorToolAPI curatorToolAPI, SimpleInstance rgpInstance) throws Exception {
+    private List<SimpleInstance> getRGPReferrers(
+        CuratorToolAPI curatorToolAPI, SimpleInstance rgpInstance) throws Exception {
         List<SimpleInstance> referrers = new ArrayList<>();
 
         final List<String> reverseAttributes = Arrays.asList(
@@ -1449,7 +1467,8 @@ public class Main {
 
 
 
-    private List<SimpleInstance> getAllEwasInstances(CuratorToolAPI curatorToolAPI, SimpleInstance referenceGeneProduct) throws Exception {
+    private List<SimpleInstance> getAllEwasInstances(
+        CuratorToolAPI curatorToolAPI, SimpleInstance referenceGeneProduct) throws Exception {
         List<SimpleInstance> allEwasInstances = new ArrayList<>();
 
         List<SimpleInstance> referenceEntityEwasInstances =
