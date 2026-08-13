@@ -1410,8 +1410,13 @@ public class Main {
     }
 
     private List<String> parseComments(String entry) {
+        // DOTALL so that a <text> body wrapped over several lines is captured whole rather than skipped. It also lets
+        // the gap before <text> span lines, so that gap is guarded against </?comment: a comment type that owns no
+        // <text> of its own (interaction, alternative products) would otherwise reach forward and take the text of a
+        // later comment, filing it under the wrong type.
         Pattern commentsPattern = Pattern.compile(
-            "<comment type=\"([A-Za-z ]*?)\".*?\\s+<text.*?>(.*?)</text>", Pattern.MULTILINE);
+            "<comment type=\"([A-Za-z ]*?)\"(?:(?!</?comment).)*?<text[^>]*>(.*?)</text>",
+            Pattern.MULTILINE | Pattern.DOTALL);
         Matcher commentsMatcher = commentsPattern.matcher(entry);
 
         // Joined with a space rather than appended straight onto each other, which ran the end of one comment into the
