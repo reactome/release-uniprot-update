@@ -23,6 +23,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.reactome.release.utils.Utils.emptyListIfNull;
+import static org.reactome.release.utils.Utils.getAttributeValues;
 import static org.reactome.release.utils.Utils.isTrEMBLId;
 
 /**
@@ -1279,18 +1280,6 @@ public class Main {
         System.out.println(String.format("new attribute values - %s", String.join(",", newValuesToCompare)));
 
         return true;
-    }
-
-    /**
-     * SimpleInstance holds a single-valued attribute as the value itself, a multi-valued attribute as a List, and
-     * returns null for an attribute with no value, so every read is normalized to a list here.
-     */
-    private List<Object> getAttributeValues(SimpleInstance instance, String attributeName) {
-        Object value = instance.getAttribute(attributeName);
-        if (value == null) {
-            return Collections.emptyList();
-        }
-        return value instanceof List ? new ArrayList<>((List<?>) value) : Collections.singletonList(value);
     }
 
     private List<String> toComparableValues(List<?> values) {
