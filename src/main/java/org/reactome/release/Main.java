@@ -107,13 +107,16 @@ public class Main {
         System.out.println("Populating rgp accession to db id...");
         Map<String, Long> rgpAccessionToDbId = curatorToolAPI.getRGPAccessionToDbIdMap();
         totalNumberOfDbInstances = rgpAccessionToDbId.size();
+        System.out.println("Populating rgp identifier to instance...");
+        Map<String, List<SimpleInstance>> rgpIdentifierToInstances = curatorToolAPI.getRGPIdentifierToInstancesMap();
         System.out.println("Populating isoform accession to instance...");
         Map<String, List<SimpleInstance>> isoformAccessionToInstances =
             curatorToolAPI.getIsoformAccessionToInstancesMap();
         // Held apart from the index above, which is what the run looks isoforms up in and so must keep every isoform
         // of the database: this is the set of accessions still to be accounted for, which the run empties as the
         // SwissProt file turns out to carry them.
-        Set<String> remainingIsoformAccessions = new HashSet<>(isoformAccessionToInstances.keySet());
+        Set<String> remainingIsoformAccessions =
+            curatorToolAPI.getUniProtIsoformAccessions(isoformAccessionToInstances);
         System.out.println("Populating rds identifier to instance...");
         Map<String, SimpleInstance> rdsIdentifierToInstance = curatorToolAPI.getRDSIdentifierToInstanceMap();
 
@@ -386,7 +389,7 @@ public class Main {
                     }
                 } else {
                     Collection<SimpleInstance> existingReferenceGeneProductInstances =
-                        curatorToolAPI.getReferenceGeneProductsByIdentifier(primaryAccession);
+                        refreshIndexedInstances(rgpIdentifierToInstances, primaryAccession);
                     boolean duplicateFlag = false;
                     for (SimpleInstance existingReferenceGeneProductInstance : existingReferenceGeneProductInstances) {
                         if (isAReferenceIsoform(existingReferenceGeneProductInstance)) {
@@ -498,7 +501,7 @@ public class Main {
             }
 
             List<SimpleInstance> mismatchedParents =
-                curatorToolAPI.getReferenceGeneProductsByIdentifier(misMatchedIsoformAccession);
+                refreshIndexedInstances(rgpIdentifierToInstances, misMatchedIsoformAccession);
 
             SimpleInstance mismatchedParent = !mismatchedParents.isEmpty() ? mismatchedParents.get(0) : null;
             if (mismatchedParent != null && isoformInstance != null) {
@@ -538,7 +541,7 @@ public class Main {
                 rgpAccessionsIterator.remove();
             } else {
                 List<SimpleInstance> obsoleteReferenceGeneProductInstances =
-                    curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
+                    refreshIndexedInstances(rgpIdentifierToInstances, rgpAccession);
 
                 boolean isObsoleteRGPDeleted = false;
                 for (SimpleInstance obsoleteReferenceGeneProductInstance : obsoleteReferenceGeneProductInstances) {
@@ -648,7 +651,7 @@ public class Main {
                 isSecondaryAccession = true;
 
                 List<SimpleInstance> obsoleteRGPInstances =
-                    curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
+                    refreshIndexedInstances(rgpIdentifierToInstances, rgpAccession);
                 for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                     String variantIdentifier = null;
                     if (isAReferenceIsoform(obsoleteRGPInstance)) {
@@ -740,7 +743,7 @@ public class Main {
             System.out.println(rgpAccession);
 
             List<SimpleInstance> obsoleteRGPInstances =
-                curatorToolAPI.getReferenceGeneProductsByIdentifier(rgpAccession);
+                refreshIndexedInstances(rgpIdentifierToInstances, rgpAccession);
 
             for (SimpleInstance obsoleteRGPInstance : obsoleteRGPInstances) {
                 String variantIdentifier = null;

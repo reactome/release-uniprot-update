@@ -48,6 +48,10 @@ public class CuratorToolAPI {
     // the instance found (or created) for a name is kept rather than queried again for every entry of that species.
     private final Map<String, SimpleInstance> speciesNameToInstance = new HashMap<>();
 
+    // The instances behind the indexes the run looks reference gene products and isoforms up in; see
+    // fetchInflatedRGPInstances.
+    private List<SimpleInstance> inflatedRGPInstances;
+
     private ConfigurableApplicationContext applicationContext;
 
     public CuratorToolAPI(long personId) {
@@ -193,34 +197,99 @@ public class CuratorToolAPI {
     }
 
     /**
-     * Returns every UniProt ReferenceIsoform in the database, inflated, indexed by its variant identifier. The
-     * instances themselves are kept rather than just their dbIds because inflating them is the cost of building this
-     * index in the first place: with them in hand, the run has each isoform's attributes without querying for the
-     * same isoform again, entry by entry, as it goes through the SwissProt file.
+     * Returns every reference gene product of the database, inflated, indexed by its identifier. The instances
+     * themselves are kept rather than just their dbIds because inflating them is the cost of building this index in
+     * the first place: with them in hand, the run has each instance's attributes without searching for the same
+     * accession again, entry by entry, as it goes through the SwissProt file.
+     *
+     * An identifier maps to a list because the database can hold more than one instance for it: the duplicate master
+     * sequences the run reports on, and the isoforms of a master sequence, which carry their parent's accession as
+     * their own identifier.
+     *
+     * No reference database filter is applied, matching getReferenceGeneProductsByIdentifier, which this index
+     * stands in for.
+     *
+     * An indexed instance goes stale once this run commits to it, so read it back through refresh.
+     *
+     * @return the reference gene products of the database, indexed by identifier.
+     */
+    public Map<String, List<SimpleInstance>> getRGPIdentifierToInstancesMap() {
+        Map<String, List<SimpleInstance>> rgpIdentifierToInstances = new HashMap<>();
+        for (SimpleInstance referenceGeneProduct : fetchInflatedRGPInstances()) {
+            String identifier = (String) referenceGeneProduct.getAttribute(ReactomeJavaConstants.identifier);
+            if (identifier != null && !identifier.isEmpty()) {
+                rgpIdentifierToInstances
+                    .computeIfAbsent(identifier, k -> new ArrayList<>())
+                    .add(referenceGeneProduct);
+            }
+        }
+        return rgpIdentifierToInstances;
+    }
+
+    /**
+     * Returns every ReferenceIsoform of the database, inflated, indexed by its variant identifier -- kept rather
+     * than discarded for its dbId for the reason given on getRGPIdentifierToInstancesMap, and drawn from the same
+     * instances, since a ReferenceIsoform inherits from ReferenceGeneProduct and so is one of them.
      *
      * A variant identifier maps to a list because the database can hold more than one isoform for it -- the
      * duplicates the run reports on.
-     *
-     * An indexed instance goes stale once this run commits to it, so read it back through refresh.
      *
      * @return the isoforms of the database, indexed by variant identifier.
      */
     public Map<String, List<SimpleInstance>> getIsoformAccessionToInstancesMap() {
         Map<String, List<SimpleInstance>> isoformIdentifierToInstances = new HashMap<>();
-        for (SimpleInstance referenceIsoform : fetchUniProtReferenceIsoformInstances()) {
-            String variantIdentifier = (String) referenceIsoform.getAttribute(ReactomeJavaConstants.variantIdentifier);
+        for (SimpleInstance referenceGeneProduct : fetchInflatedRGPInstances()) {
+            if (!ReactomeJavaConstants.ReferenceIsoform.equals(referenceGeneProduct.getSchemaClassName())) {
+                continue;
+            }
+
+            String variantIdentifier =
+                (String) referenceGeneProduct.getAttribute(ReactomeJavaConstants.variantIdentifier);
             if (variantIdentifier != null && !variantIdentifier.isEmpty()) {
                 isoformIdentifierToInstances
                     .computeIfAbsent(variantIdentifier, k -> new ArrayList<>())
-                    .add(referenceIsoform);
+                    .add(referenceGeneProduct);
             }
         }
         return isoformIdentifierToInstances;
     }
 
     /**
+     * Returns the variant identifiers of the UniProt isoforms of the database -- the isoforms the run accounts for
+     * against the SwissProt file, and deletes or reports on where the file no longer carries them. The index itself
+     * is wider than this, holding every isoform whatever its reference database, because it stands in for a search
+     * that applied no such filter.
+     *
+     * Which isoforms are the UniProt ones is settled by the dbIds a UniProt-filtered search returns, rather than by
+     * reading a reference database off the instances and deciding here what counts as UniProt. That search returns
+     * shells, which is all this needs, so it inflates nothing.
+     *
+     * @param isoformAccessionToInstances - the isoforms of the database, indexed by variant identifier.
+     * @return the variant identifiers of the UniProt isoforms.
+     */
+    public Set<String> getUniProtIsoformAccessions(Map<String, List<SimpleInstance>> isoformAccessionToInstances) {
+        Set<Long> uniProtIsoformDbIds =
+            fetchInstancesForClass(ReactomeJavaConstants.ReferenceIsoform, "UniProt")
+                .stream()
+                .map(SimpleInstance::getDbId)
+                .collect(Collectors.toSet());
+
+        Set<String> uniProtIsoformAccessions = new HashSet<>();
+        for (Map.Entry<String, List<SimpleInstance>> indexedIsoforms : isoformAccessionToInstances.entrySet()) {
+            boolean anyIsAUniProtIsoform = indexedIsoforms.getValue()
+                .stream()
+                .anyMatch(isoform -> uniProtIsoformDbIds.contains(isoform.getDbId()));
+
+            if (anyIsAUniProtIsoform) {
+                uniProtIsoformAccessions.add(indexedIsoforms.getKey());
+            }
+        }
+        return uniProtIsoformAccessions;
+    }
+
+    /**
      * Returns every ReferenceDNASequence in the database, inflated, indexed by its identifier -- kept rather than
-     * discarded for its dbId for the reason given on getIsoformAccessionToInstancesMap.
+     * discarded for its dbId for the reason given on getRGPIdentifierToInstancesMap.
      *
      * @return the reference DNA sequences of the database, indexed by identifier.
      */
@@ -336,6 +405,25 @@ public class CuratorToolAPI {
 
     private List<SimpleInstance> fetchUniProtRGPInstances() {
         return fetchInstancesForClass(ReactomeJavaConstants.ReferenceGeneProduct, "UniProt");
+    }
+
+    /**
+     * Returns every instance carrying the ReferenceGeneProduct label -- the master sequences and, since a
+     * ReferenceIsoform inherits from ReferenceGeneProduct, the isoforms too -- inflated. Held once the first index is
+     * built from it, so that the indexes built afterwards share the one set of instances rather than inflating the
+     * same instance again for each of them.
+     *
+     * @return the reference gene products of the database, inflated.
+     */
+    private List<SimpleInstance> fetchInflatedRGPInstances() {
+        if (inflatedRGPInstances == null) {
+            inflatedRGPInstances = fetchInstancesForClass(ReactomeJavaConstants.ReferenceGeneProduct)
+                .parallelStream()
+                .map(this::inflate)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        }
+        return inflatedRGPInstances;
     }
 
     public List<SimpleInstance> fetchUniProtReferenceIsoformInstances() {
