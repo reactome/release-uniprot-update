@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 
 import static org.reactome.release.utils.Utils.emptyListIfNull;
 import static org.reactome.release.utils.Utils.getAttributeValues;
-import static org.reactome.release.utils.Utils.isTrEMBLId;
+import static org.reactome.release.utils.Utils.getTrEMBLIds;
 
 /**
  * @author Joel Weiser (joel.weiser@oicr.on.ca)
@@ -531,12 +531,16 @@ public class Main {
 
         System.out.println("Deleting obsolete instances with no referrers...");
 
+        // Looked up for every remaining accession at once, rather than accession by accession inside the loop: each
+        // look-up is a request to UniProt, and one request answers for a hundred accessions.
+        Set<String> tremblAccessionSet = getTrEMBLIds(rgpAccessionToDbId.keySet());
+
         Iterator<String> rgpAccessionsIterator = rgpAccessionToDbId.keySet().iterator();
         List<String> tremblAccessions = new ArrayList<>();
         while (rgpAccessionsIterator.hasNext()) {
             String rgpAccession = rgpAccessionsIterator.next();
 
-            if (isTrEMBLId(rgpAccession)) {
+            if (tremblAccessionSet.contains(rgpAccession)) {
                 tremblAccessions.add(rgpAccession);
                 rgpAccessionsIterator.remove();
             } else {
