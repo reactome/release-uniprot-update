@@ -250,6 +250,10 @@ public class CuratorToolAPI {
     }
 
     public void deleteInstance(SimpleInstance instance) {
+        if (instance.getDefaultPersonId() == null) {
+            instance.setDefaultPersonId(getPersonId());
+        }
+
         controller.delete(instance);
         if (instance.getDbId() != null) {
             deletedDbIds.add(instance.getDbId());
