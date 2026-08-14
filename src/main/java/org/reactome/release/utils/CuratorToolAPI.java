@@ -44,6 +44,10 @@ public class CuratorToolAPI {
     // Source of the negative placeholder dbIds given to instances that are not in the database yet.
     private final AtomicLong placeholderDbIdCounter = new AtomicLong();
 
+    // A species instance is wanted once per SwissProt entry, from the same dozen species names for the whole run, so
+    // the instance found (or created) for a name is kept rather than queried again for every entry of that species.
+    private final Map<String, SimpleInstance> speciesNameToInstance = new HashMap<>();
+
     private ConfigurableApplicationContext applicationContext;
 
     public CuratorToolAPI(long personId) {
@@ -211,14 +215,18 @@ public class CuratorToolAPI {
     }
 
     public SimpleInstance getSpeciesInstance(String speciesName) throws Exception {
+        SimpleInstance cachedSpeciesInstance = speciesNameToInstance.get(speciesName);
+        if (cachedSpeciesInstance != null) {
+            return cachedSpeciesInstance;
+        }
+
         SimpleInstance speciesInstance = fetchSpecies(speciesName);
-        if (speciesInstance != null) {
-            return speciesInstance;
-        } else {
+        if (speciesInstance == null) {
             speciesInstance = createNewSpeciesInstance(speciesName);
             commit(speciesInstance);
-            return speciesInstance;
         }
+        speciesNameToInstance.put(speciesName, speciesInstance);
+        return speciesInstance;
     }
 
     public SimpleInstance getHumanEnsEMBLGeneReferenceDatabase() {
