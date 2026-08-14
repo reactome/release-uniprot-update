@@ -107,10 +107,15 @@ public class Main {
         System.out.println("Populating rgp accession to db id...");
         Map<String, Long> rgpAccessionToDbId = curatorToolAPI.getRGPAccessionToDbIdMap();
         totalNumberOfDbInstances = rgpAccessionToDbId.size();
-        System.out.println("Populating isoform accession to db id...");
-        Map<String, Long> isoformAccessionToDbId = curatorToolAPI.getIsoformAccessionToDbIdMap();
-        System.out.println("Populating rds identifier to db id...");
-        Map<String, Long> rdsIdentifierToDbId = curatorToolAPI.getRDSIdentifierToDbIdMap();
+        System.out.println("Populating isoform accession to instance...");
+        Map<String, List<SimpleInstance>> isoformAccessionToInstances =
+            curatorToolAPI.getIsoformAccessionToInstancesMap();
+        // Held apart from the index above, which is what the run looks isoforms up in and so must keep every isoform
+        // of the database: this is the set of accessions still to be accounted for, which the run empties as the
+        // SwissProt file turns out to carry them.
+        Set<String> remainingIsoformAccessions = new HashSet<>(isoformAccessionToInstances.keySet());
+        System.out.println("Populating rds identifier to instance...");
+        Map<String, SimpleInstance> rdsIdentifierToInstance = curatorToolAPI.getRDSIdentifierToInstanceMap();
 
         Map<String, List<String>> secondaryAccessionToPrimaryAccessionList = new HashMap<>();
         Map<String, String> misMatchedIsoformAccessionToRGPAccession = new HashMap<>();
@@ -242,14 +247,12 @@ public class Main {
                     }
 
                     for (String ensEMBLGeneId : uniqueEnsEMBLGeneIds) {
-                        SimpleInstance referenceDNASequence;
+                        SimpleInstance referenceDNASequence = refreshIndexedInstance(
+                            rdsIdentifierToInstance, ensEMBLGeneId);
 
-                        if (rdsIdentifierToDbId.containsKey(ensEMBLGeneId)) {
+                        if (referenceDNASequence != null) {
                             referenceDNASequenceReportWriter.write("Checking existing reference DNA sequence for " +
-                                ensEMBLGeneId + " with db_id " + rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n");
-
-                            long rdsDbId = rdsIdentifierToDbId.get(ensEMBLGeneId);
-                            referenceDNASequence = fetchReferenceDNASequenceByDbId(curatorToolAPI, rdsDbId);
+                                ensEMBLGeneId + " with db_id " + referenceDNASequence.getDbId() + "\n");
 
                             SimpleInstance existingRDSReferenceDatabase = (SimpleInstance)
                                 referenceDNASequence.getAttribute(ReactomeJavaConstants.referenceDatabase);
@@ -287,7 +290,7 @@ public class Main {
                             if (isUpdateToReferenceDNASequence) {
                                 referenceDNASequenceReportWriter.write(
                                     "Updating existing reference DNA sequence for " + ensEMBLGeneId + " with db_id " +
-                                    rdsIdentifierToDbId.get(ensEMBLGeneId) + "\n"
+                                    referenceDNASequence.getDbId() + "\n"
                                 );
                                 referenceDNASequence.setDisplayName(
                                     curatorToolAPI.getReferenceSequenceDisplayName(referenceDNASequence));
@@ -318,7 +321,7 @@ public class Main {
                             long referenceDNASequenceDbId = curatorToolAPI.commit(referenceDNASequence).getDbId();
                             referenceDNASequenceReportWriter.write("Reference DNA sequence with db_id " +
                                 referenceDNASequenceDbId + " created for " + ensEMBLGeneId + "\n");
-                            rdsIdentifierToDbId.put(ensEMBLGeneId, referenceDNASequenceDbId);
+                            rdsIdentifierToInstance.put(ensEMBLGeneId, referenceDNASequence);
                         }
                         referenceDNASequences.add(referenceDNASequence);
                     }
@@ -379,6 +382,7 @@ public class Main {
                         newIsoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier, isoformId);
 
                         updateInstance(curatorToolAPI, newIsoformInstance, values, sequenceReportWriter);
+                        indexIsoform(isoformAccessionToInstances, isoformId, newIsoformInstance);
                     }
                 } else {
                     Collection<SimpleInstance> existingReferenceGeneProductInstances =
@@ -414,7 +418,7 @@ public class Main {
                         for (String isoformId : isoformIds) {
                             if (isoformId.contains(primaryAccession)) {
                                 List<SimpleInstance> isoformInstances =
-                                    curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformId);
+                                    refreshIndexedInstances(isoformAccessionToInstances, isoformId);
                                 if (!isoformInstances.isEmpty()) {
                                     for (SimpleInstance isoformInstance : isoformInstances) {
                                         String isoformAccession = (String) isoformInstance.getAttribute(
@@ -430,7 +434,7 @@ public class Main {
 
                                         updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
 
-                                        isoformAccessionToDbId.remove(isoformId);
+                                        remainingIsoformAccessions.remove(isoformId);
                                     }
                                 } else {
                                     SimpleInstance isoformInstance = new SimpleInstance();
@@ -450,6 +454,7 @@ public class Main {
                                         isoformId, isoformDbId, existingReferenceGeneProductInstance.getDbId()));
 
                                     updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
+                                    indexIsoform(isoformAccessionToInstances, isoformId, isoformInstance);
                                 }
                             } else {
                                 misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
@@ -478,7 +483,7 @@ public class Main {
             List<SimpleInstance> isoformParents = new ArrayList<>();
 
             List<SimpleInstance> isoformInstances =
-                curatorToolAPI.getReferenceIsoformByVariantIdentifier(misMatchedIsoformAccession);
+                refreshIndexedInstances(isoformAccessionToInstances, misMatchedIsoformAccession);
 
             SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance != null) {
@@ -567,11 +572,11 @@ public class Main {
         trEMBLAccessionReport.writeReport();
 
         List<Long> dbIdsToSkip = new ArrayList<>();
-        Iterator<String> isoformAccessionIterator = isoformAccessionToDbId.keySet().iterator();
+        Iterator<String> isoformAccessionIterator = remainingIsoformAccessions.iterator();
         while (isoformAccessionIterator.hasNext()) {
             String isoformAccession = isoformAccessionIterator.next();
             List<SimpleInstance> isoformInstances =
-                curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
+                refreshIndexedInstances(isoformAccessionToInstances, isoformAccession);
 
             SimpleInstance isoformInstance = !isoformInstances.isEmpty() ? isoformInstances.get(0) : null;
             if (isoformInstance == null) {
@@ -802,9 +807,9 @@ public class Main {
             }
         }
 
-        for (String isoformAccession : isoformAccessionToDbId.keySet()) {
+        for (String isoformAccession : remainingIsoformAccessions) {
             List<SimpleInstance> isoformInstances =
-                curatorToolAPI.getReferenceIsoformByVariantIdentifier(isoformAccession);
+                refreshIndexedInstances(isoformAccessionToInstances, isoformAccession);
             String speciesName;
             for (SimpleInstance isoformInstance : isoformInstances) {
                 List<String> referrerIds = new ArrayList<>();
@@ -1055,9 +1060,68 @@ public class Main {
         return rgpInstance.getSchemaClassName().equals(ReactomeJavaConstants.ReferenceIsoform);
     }
 
-    private SimpleInstance fetchReferenceDNASequenceByDbId(
-        CuratorToolAPI curatorToolAPI, long referenceDNASequenceDbId) {
-        return curatorToolAPI.findByDbId(referenceDNASequenceDbId);
+    /**
+     * Returns the indexed instance for the key, up to date with the database, or null if the index holds none for the
+     * key or this run has deleted the one it held. The up-to-date copy takes the place of the indexed one, so that
+     * the next look-up of the same key does not have to read it back again.
+     *
+     * @param index - instances of the database, indexed by the identifier they are looked up by.
+     * @param key - the identifier to look up.
+     * @return the instance for the key, or null if there is none.
+     */
+    private SimpleInstance refreshIndexedInstance(Map<String, SimpleInstance> index, String key) {
+        SimpleInstance indexedInstance = index.get(key);
+        if (indexedInstance == null) {
+            return null;
+        }
+
+        SimpleInstance refreshedInstance = curatorToolAPI.refresh(indexedInstance);
+        if (refreshedInstance == null) {
+            index.remove(key);
+        } else {
+            index.put(key, refreshedInstance);
+        }
+        return refreshedInstance;
+    }
+
+    /**
+     * As refreshIndexedInstance, for an index whose key can hold more than one instance. Instances this run has
+     * deleted are dropped, so the list returned is empty rather than null where the key has nothing left behind it.
+     *
+     * @param index - instances of the database, indexed by the identifier they are looked up by.
+     * @param key - the identifier to look up.
+     * @return the instances for the key, empty if there are none.
+     */
+    private List<SimpleInstance> refreshIndexedInstances(Map<String, List<SimpleInstance>> index, String key) {
+        List<SimpleInstance> indexedInstances = index.get(key);
+        if (indexedInstances == null) {
+            return Collections.emptyList();
+        }
+
+        indexedInstances.replaceAll(curatorToolAPI::refresh);
+        indexedInstances.removeIf(Objects::isNull);
+        return indexedInstances;
+    }
+
+    /**
+     * Adds an isoform created by this run to the index, so that it is found by a later look-up of its variant
+     * identifier -- the mis-matched isoform clean-up looks up isoform ids belonging to other entries, which the entry
+     * they belong to may have created by then.
+     *
+     * An isoform with no dbId was never stored, so it is left out: the index is what the run treats as the contents
+     * of the database, and committing such an instance from a later look-up would store it a second time.
+     *
+     * @param index - the isoforms of the database, indexed by variant identifier.
+     * @param variantIdentifier - the variant identifier of the created isoform.
+     * @param isoformInstance - the created isoform.
+     */
+    private void indexIsoform(
+        Map<String, List<SimpleInstance>> index, String variantIdentifier, SimpleInstance isoformInstance) {
+        if (isoformInstance.getDbId() == null) {
+            return;
+        }
+
+        index.computeIfAbsent(variantIdentifier, k -> new ArrayList<>()).add(isoformInstance);
     }
 
     private boolean sameDbId(SimpleInstance instance1, SimpleInstance instance2) {

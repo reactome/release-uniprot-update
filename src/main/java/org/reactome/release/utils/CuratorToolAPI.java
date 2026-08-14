@@ -192,26 +192,47 @@ public class CuratorToolAPI {
         return identifierToDbId;
     }
 
-    public Map<String, Long> getIsoformAccessionToDbIdMap() {
-        Map<String, Long> isoformIdentifierToDbId = new HashMap<>();
+    /**
+     * Returns every UniProt ReferenceIsoform in the database, inflated, indexed by its variant identifier. The
+     * instances themselves are kept rather than just their dbIds because inflating them is the cost of building this
+     * index in the first place: with them in hand, the run has each isoform's attributes without querying for the
+     * same isoform again, entry by entry, as it goes through the SwissProt file.
+     *
+     * A variant identifier maps to a list because the database can hold more than one isoform for it -- the
+     * duplicates the run reports on.
+     *
+     * An indexed instance goes stale once this run commits to it, so read it back through refresh.
+     *
+     * @return the isoforms of the database, indexed by variant identifier.
+     */
+    public Map<String, List<SimpleInstance>> getIsoformAccessionToInstancesMap() {
+        Map<String, List<SimpleInstance>> isoformIdentifierToInstances = new HashMap<>();
         for (SimpleInstance referenceIsoform : fetchUniProtReferenceIsoformInstances()) {
             String variantIdentifier = (String) referenceIsoform.getAttribute(ReactomeJavaConstants.variantIdentifier);
             if (variantIdentifier != null && !variantIdentifier.isEmpty()) {
-                isoformIdentifierToDbId.put(variantIdentifier, referenceIsoform.getDbId());
+                isoformIdentifierToInstances
+                    .computeIfAbsent(variantIdentifier, k -> new ArrayList<>())
+                    .add(referenceIsoform);
             }
         }
-        return isoformIdentifierToDbId;
+        return isoformIdentifierToInstances;
     }
 
-    public Map<String, Long> getRDSIdentifierToDbIdMap() {
-        Map<String, Long> rdsIdentifierToDbId = new HashMap<>();
+    /**
+     * Returns every ReferenceDNASequence in the database, inflated, indexed by its identifier -- kept rather than
+     * discarded for its dbId for the reason given on getIsoformAccessionToInstancesMap.
+     *
+     * @return the reference DNA sequences of the database, indexed by identifier.
+     */
+    public Map<String, SimpleInstance> getRDSIdentifierToInstanceMap() {
+        Map<String, SimpleInstance> rdsIdentifierToInstance = new HashMap<>();
         for (SimpleInstance referenceDNASequence : fetchRDSInstances()) {
             String rdsIdentifier = (String) referenceDNASequence.getAttribute(ReactomeJavaConstants.identifier);
             if (rdsIdentifier != null && !rdsIdentifier.isEmpty()) {
-                rdsIdentifierToDbId.put(rdsIdentifier, referenceDNASequence.getDbId());
+                rdsIdentifierToInstance.put(rdsIdentifier, referenceDNASequence);
             }
         }
-        return rdsIdentifierToDbId;
+        return rdsIdentifierToInstance;
     }
 
     public SimpleInstance getSpeciesInstance(String speciesName) throws Exception {
