@@ -560,9 +560,7 @@ public class Main {
                     }
 
                     long obsoleteRGPDbId = obsoleteReferenceGeneProductInstance.getDbId();
-                    List<SimpleInstance> referrers =
-                        getRGPReferrers(curatorToolAPI, obsoleteReferenceGeneProductInstance);
-                    if (referrers == null || referrers.isEmpty()) {
+                    if (hasNoRGPReferrers(curatorToolAPI, obsoleteReferenceGeneProductInstance)) {
                         System.out.println("Deleting " + obsoleteRGPDbId + "...");
                         curatorToolAPI.deleteInstance(obsoleteReferenceGeneProductInstance);
                         numberOfObsoleteInstancesWithNoEWAS += 1;
@@ -607,8 +605,7 @@ public class Main {
                 continue;
             }
 
-            List<SimpleInstance> referrers = getRGPReferrers(curatorToolAPI, isoformInstance);
-            if (referrers == null || referrers.isEmpty()) {
+            if (hasNoRGPReferrers(curatorToolAPI, isoformInstance)) {
                 System.out.println("Deleting " + obsoleteIsoformDbId + "...");
                 curatorToolAPI.deleteInstance(isoformInstance);
                 numberOfObsoleteInstancesWithNoEWAS += 1;
@@ -717,7 +714,7 @@ public class Main {
                         } else {
                             wikiWriter.write(reportLine);
                         }
-                    } else if (getRGPReferrers(curatorToolAPI, obsoleteRGPInstance).isEmpty()) {
+                    } else if (hasNoRGPReferrers(curatorToolAPI, obsoleteRGPInstance)) {
                         // The report lists EWAS referrers only, but the instances collected here are deleted further
                         // down, so an instance is only added once nothing at all refers to it -- the same check the
                         // first round of deletions makes.
@@ -805,7 +802,7 @@ public class Main {
                     } else {
                         wikiWriter.write(reportLine);
                     }
-                } else if (getRGPReferrers(curatorToolAPI, obsoleteRGPInstance).isEmpty()) {
+                } else if (hasNoRGPReferrers(curatorToolAPI, obsoleteRGPInstance)) {
                     // The report lists EWAS referrers only, but the instances collected here are deleted further
                     // down, so an instance is only added once nothing at all refers to it -- the same check the
                     // first round of deletions makes.
@@ -861,7 +858,7 @@ public class Main {
                     } else {
                         wikiWriter.write(reportLine);
                     }
-                } else if (getRGPReferrers(curatorToolAPI, isoformInstance).isEmpty()) {
+                } else if (hasNoRGPReferrers(curatorToolAPI, isoformInstance)) {
                     // The report lists EWAS referrers only, but the instances collected here are deleted further
                     // down, so an instance is only added once nothing at all refers to it -- the same check the
                     // first round of deletions makes.
@@ -1419,11 +1416,20 @@ public class Main {
         return "";
     }
 
-    @SuppressWarnings("unchecked")
-    private List<SimpleInstance> getRGPReferrers(
-        CuratorToolAPI curatorToolAPI, SimpleInstance rgpInstance) throws Exception {
-        List<SimpleInstance> referrers = new ArrayList<>();
-
+    /**
+     * Reports whether anything in the database refers to the instance through any of the attributes a reference
+     * gene product is referred to by. Every caller asks only whether there are referrers at all, which is why this
+     * answers that rather than handing the referrers themselves back.
+     *
+     * The referrers are fetched once for all of the attributes. The single-attribute form of getReferrers fetches
+     * every referrer of the instance and then keeps one attribute's worth of them, so calling it for each attribute
+     * in turn fetched the same referrers over again for each one.
+     *
+     * @param curatorToolAPI - the API to fetch the referrers through.
+     * @param rgpInstance - the instance to look for referrers of.
+     * @return true if nothing refers to the instance, false if anything does.
+     */
+    private boolean hasNoRGPReferrers(CuratorToolAPI curatorToolAPI, SimpleInstance rgpInstance) throws Exception {
         final List<String> reverseAttributes = Arrays.asList(
             ReactomeJavaConstants.referenceEntity,
             ReactomeJavaConstants.referenceSequence,
@@ -1431,14 +1437,10 @@ public class Main {
             ReactomeJavaConstants.isoformParent
         );
 
-        for (String reverseAttribute : reverseAttributes) {
-            List<SimpleInstance> reverseAttributeReferrers =
-                curatorToolAPI.getReferrers(rgpInstance, reverseAttribute);
-            if (reverseAttributeReferrers != null) {
-                referrers.addAll(reverseAttributeReferrers);
-            }
-        }
-        return referrers;
+        return emptyListIfNull(curatorToolAPI.getReferrers(rgpInstance))
+            .stream()
+            .filter(namedReferrers -> reverseAttributes.contains(namedReferrers.getAttributeName()))
+            .allMatch(namedReferrers -> emptyListIfNull(namedReferrers.getReferrers()).isEmpty());
     }
 
 
