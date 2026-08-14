@@ -363,7 +363,10 @@ public class Main {
                     updateInstance(curatorToolAPI, newReferenceGeneProductInstance, values, sequenceReportWriter);
                     for (String isoformId : isoformIds) {
                         if (!isoformId.contains(primaryAccession)) {
+                            // Recorded for the mis-matched isoform clean-up below and not created here, matching how
+                            // the branch for an existing ReferenceGeneProduct handles a mis-matched isoform.
                             misMatchedIsoformAccessionToRGPAccession.put(isoformId, primaryAccession);
+                            continue;
                         }
 
                         SimpleInstance newIsoformInstance = new SimpleInstance();
