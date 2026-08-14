@@ -37,7 +37,7 @@ public class TrEMBLAccessionReport implements Reportable {
 
     @Override
     public String getHeader() {
-        return "TrEMBL_Accessions";
+        return "TrEMBL_Accessions".concat(System.lineSeparator());
     }
 
     public List<String> getTrEMBLAccessions() {
