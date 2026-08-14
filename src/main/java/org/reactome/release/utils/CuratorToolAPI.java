@@ -367,11 +367,7 @@ public class CuratorToolAPI {
             logger.warn("No instance found for db id " + noReferrerDbId + " -- nothing to delete");
             return;
         }
-
-        controller.delete(instance);
-
-        deletedDbIds.add(noReferrerDbId);
-        committedDbIds.remove(noReferrerDbId);
+        deleteInstance(instance);
     }
 
     public void close() {
