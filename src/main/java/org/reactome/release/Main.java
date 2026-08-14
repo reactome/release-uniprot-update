@@ -42,6 +42,8 @@ public class Main {
     private BufferedWriter referenceDNASequenceReportWriter;
     private BufferedWriter wikiWriter;
 
+    private SimpleInstance humanEnsEMBLGeneReferenceDatabase;
+
     public static void main(String[] args) throws Exception {
         Main main = new Main();
 
@@ -238,8 +240,6 @@ public class Main {
                         referenceDNASequenceReportWriter.write("Multiple gene ids -- " +
                             String.join("\t", primaryAccession, name, uniqueEnsEMBLGeneIds.toString()) + "\n");
                     }
-                    SimpleInstance humanEnsEMBLGeneReferenceDatabase =
-                        curatorToolAPI.getHumanEnsEMBLGeneReferenceDatabase();
 
                     for (String ensEMBLGeneId : uniqueEnsEMBLGeneIds) {
                         SimpleInstance referenceDNASequence;
@@ -255,9 +255,9 @@ public class Main {
                                 referenceDNASequence.getAttribute(ReactomeJavaConstants.referenceDatabase);
                             boolean isUpdateToReferenceDNASequence = false;
                             if (existingRDSReferenceDatabase == null ||
-                                !sameDbId(existingRDSReferenceDatabase, humanEnsEMBLGeneReferenceDatabase)) {
+                                !sameDbId(existingRDSReferenceDatabase, getHumanEnsEMBLGeneReferenceDatabase())) {
                                 referenceDNASequence.setAttribute(
-                                    ReactomeJavaConstants.referenceDatabase, humanEnsEMBLGeneReferenceDatabase);
+                                    ReactomeJavaConstants.referenceDatabase, getHumanEnsEMBLGeneReferenceDatabase());
                                 isUpdateToReferenceDNASequence = true;
                             }
 
@@ -973,6 +973,13 @@ public class Main {
         System.out.println("Total SwissProt instances in file: " + numberOfInstancesInSwissProtFile);
         System.out.println("Obsolete instances with no referrers: " + numberOfObsoleteInstancesWithNoEWAS);
         System.out.println("Number of new SwissProt instances: " + numberOfNewSwissProtInstances);
+    }
+
+    private SimpleInstance getHumanEnsEMBLGeneReferenceDatabase() {
+        if (humanEnsEMBLGeneReferenceDatabase == null) {
+            humanEnsEMBLGeneReferenceDatabase = curatorToolAPI.getHumanEnsEMBLGeneReferenceDatabase();
+        }
+        return humanEnsEMBLGeneReferenceDatabase;
     }
 
     private static Path getDefaultConfigFilePath() throws URISyntaxException {
