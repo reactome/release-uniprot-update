@@ -448,6 +448,8 @@ public class Main {
                                         Collections.singletonList(existingReferenceGeneProductInstance));
                                     isoformInstance.setAttribute(ReactomeJavaConstants.variantIdentifier,
                                         isoformId);
+                                    isoformInstance.setAttribute(
+                                        ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
                                     long isoformDbId = curatorToolAPI.commit(isoformInstance).getDbId();
                                     // As with a new ReferenceGeneProduct above, updateInstance commits this instance
                                     // a second time, so it is re-read first.
