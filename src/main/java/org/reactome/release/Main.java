@@ -1,5 +1,7 @@
 package org.reactome.release;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.gk.model.ReactomeJavaConstants;
 import org.reactome.curation.model.NamedReferrerList;
 import org.reactome.curation.model.SimpleInstance;
@@ -62,8 +64,25 @@ public class Main {
         )) +
         ")\"(.*?)</feature>");
 
+    private static final String ORGANISM_NAME_REGEX = "<name type=\"scientific\">(.*?)</name>";
+    private static final String ENSEMBL_GENE_ID_REGEX = "<property type=\"gene ID\" value=\"(ENSG.*?)\"";
+
+    private static final List<String> PRIMARY_ASSEMBLY_REGIONS = Arrays.asList(
+        "1","2","3","4","5","6","7","8","9","10",
+        "11","12","13","14","15","16","17","18","19","20",
+        "21","22","X","Y","MT"
+    );
+
+    private static final String ENSEMBL_BATCH_LOOKUP_URL = "https://rest.ensembl.org/lookup/id";
+    // The most gene ids EnsEMBL takes in one request to its batch look-up end point.
+    private static final int MAX_ENSEMBL_GENE_IDS_PER_REQUEST = 1000;
+    private static final int MAX_ENSEMBL_BATCH_ATTEMPTS = 3;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private static final int ENSEMBL_CONNECT_TIMEOUT_MILLIS = 10000;
     private static final int ENSEMBL_READ_TIMEOUT_MILLIS = 20000;
+    // Longer than for a single gene id: EnsEMBL has been seen to take over 15s to answer a batch of three.
+    private static final int ENSEMBL_BATCH_READ_TIMEOUT_MILLIS = 180000;
 
     // Whether each EnsEMBL gene id asked about is on the primary assembly. A gene id found not to be is skipped rather
     // than given a ReferenceDNASequence, so nothing else records the answer, and without this every entry carrying
@@ -191,6 +210,16 @@ public class Main {
         int recordCounter = 0;
 
         SwissProtFileProcessor swissProtFileProcessor = new SwissProtFileProcessor(getUniprotUpdateDirectoryPath());
+
+        // Asked of EnsEMBL in batches before the SwissProt entries are processed, rather than one gene id at a time as
+        // the entries come up: a batch costs EnsEMBL about as long to answer as a single gene id does.
+        System.out.println("Collecting EnsEMBL gene ids to look up...");
+        Set<String> ensEMBLGeneIdsToLookUp =
+            collectEnsEMBLGeneIdsToLookUp(swissProtFileProcessor, rdsIdentifierToInstance);
+        System.out.println("Looking up " + ensEMBLGeneIdsToLookUp.size() + " EnsEMBL gene ids in batches...");
+        lookUpEnsEMBLGeneIdsInBatches(ensEMBLGeneIdsToLookUp);
+        System.out.println("EnsEMBL look-ups complete");
+
         swissProtFileReader = swissProtFileProcessor.getFileReader();
         while ((line = swissProtFileReader.readLine()) != null) {
             entryBuilder.append(line);
@@ -217,7 +246,7 @@ public class Main {
                         secondaryAccession, k -> new ArrayList<>()).add(primaryAccession);
                 }
 
-                String organismName = matchSingleValue(entry, "<name type=\"scientific\">(.*?)</name>");
+                String organismName = matchSingleValue(entry, ORGANISM_NAME_REGEX);
                 String taxon = "";
                 SimpleInstance speciesInstance = null;
                 for (String speciesName : taxonIdToSpeciesName.values()) {
@@ -294,14 +323,7 @@ public class Main {
 
                 List<SimpleInstance> referenceDNASequences = new ArrayList<>();
                 if (taxon.contains("Homo sapiens")) {
-                    String typeValueRegex = "<property type=\"gene ID\" value=\"(ENSG.*?)\"";
-                    Set<String> uniqueEnsEMBLGeneIds = new HashSet<>();
-                    uniqueEnsEMBLGeneIds.addAll(matchMultipleValues(entry, typeValueRegex));
-                    uniqueEnsEMBLGeneIds = uniqueEnsEMBLGeneIds
-                        .stream()
-                        .distinct()
-                        .map(this::removeVersionNumber)
-                        .collect(Collectors.toSet());
+                    Set<String> uniqueEnsEMBLGeneIds = getUniqueEnsEMBLGeneIds(entry);
 
                     if (uniqueEnsEMBLGeneIds.size() > 1) {
                         referenceDNASequenceReportWriter.write("Multiple gene ids -- " +
@@ -1218,17 +1240,152 @@ public class Main {
         return !list1.equals(list2);
     }
 
+    /**
+     * Returns the EnsEMBL gene ids, without version numbers, that the entry's cross-references carry.
+     *
+     * @param entry - the UniProt XML entry to parse.
+     * @return the entry's EnsEMBL gene ids.
+     */
+    private Set<String> getUniqueEnsEMBLGeneIds(String entry) {
+        return matchMultipleValues(entry, ENSEMBL_GENE_ID_REGEX)
+            .stream()
+            .map(this::removeVersionNumber)
+            .collect(Collectors.toSet());
+    }
+
+    /**
+     * Returns the EnsEMBL gene ids the run will ask onEnsEMBLPrimaryAssembly about: those of human entries carrying
+     * more than one gene id, which have no ReferenceDNASequence yet. The SwissProt file is read through once for this,
+     * ahead of the run proper, parsing only an entry's organism and, for a human entry, its gene ids.
+     *
+     * Collecting a gene id the run turns out not to ask about costs only its place in a batch, so this need not match
+     * the run exactly -- a ReferenceDNASequence the run creates before reaching a later entry with the same gene id is
+     * not foreseen here, for instance.
+     *
+     * @param swissProtFileProcessor - the processor for the SwissProt file.
+     * @param rdsIdentifierToInstance - the ReferenceDNASequences of the database, indexed by identifier.
+     * @return the gene ids to look up.
+     */
+    private Set<String> collectEnsEMBLGeneIdsToLookUp(
+        SwissProtFileProcessor swissProtFileProcessor, Map<String, SimpleInstance> rdsIdentifierToInstance
+    ) throws IOException {
+        Set<String> ensEMBLGeneIdsToLookUp = new HashSet<>();
+
+        try (BufferedReader reader = swissProtFileProcessor.getFileReader()) {
+            StringBuilder entryBuilder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                entryBuilder.append(line);
+                if (!line.contains("</entry>")) {
+                    continue;
+                }
+
+                String entry = entryBuilder.toString();
+                entryBuilder = new StringBuilder();
+
+                if (!matchSingleValue(entry, ORGANISM_NAME_REGEX).contains("Homo sapiens")) {
+                    continue;
+                }
+
+                Set<String> uniqueEnsEMBLGeneIds = getUniqueEnsEMBLGeneIds(entry);
+                if (uniqueEnsEMBLGeneIds.size() > 1) {
+                    for (String ensEMBLGeneId : uniqueEnsEMBLGeneIds) {
+                        if (!rdsIdentifierToInstance.containsKey(ensEMBLGeneId)) {
+                            ensEMBLGeneIdsToLookUp.add(ensEMBLGeneId);
+                        }
+                    }
+                }
+            }
+        }
+        return ensEMBLGeneIdsToLookUp;
+    }
+
+    /**
+     * Asks EnsEMBL whether each gene id is on the primary assembly, a thousand at a time, and keeps the answers for
+     * onEnsEMBLPrimaryAssembly. A gene id no batch answers for -- its batch failed every attempt -- is left out, so
+     * that onEnsEMBLPrimaryAssembly asks about it on its own when the run comes to it.
+     *
+     * @param ensEMBLGeneIds - the gene ids to look up.
+     */
+    private void lookUpEnsEMBLGeneIdsInBatches(Collection<String> ensEMBLGeneIds) throws InterruptedException {
+        List<String> geneIds = new ArrayList<>(ensEMBLGeneIds);
+
+        for (int batchStart = 0; batchStart < geneIds.size(); batchStart += MAX_ENSEMBL_GENE_IDS_PER_REQUEST) {
+            List<String> batch = geneIds.subList(
+                batchStart, Math.min(batchStart + MAX_ENSEMBL_GENE_IDS_PER_REQUEST, geneIds.size()));
+
+            for (int attempt = 1; attempt <= MAX_ENSEMBL_BATCH_ATTEMPTS; attempt++) {
+                try {
+                    ensEMBLGeneIdToIsOnPrimaryAssembly.putAll(queryEnsEMBLPrimaryAssembly(batch));
+                    break;
+                } catch (IOException e) {
+                    System.out.println("IOException when looking up a batch of " + batch.size() +
+                        " EnsEMBL gene ids (attempt " + attempt + " of " + MAX_ENSEMBL_BATCH_ATTEMPTS + "): " +
+                        e.getMessage());
+                    if (attempt < MAX_ENSEMBL_BATCH_ATTEMPTS) {
+                        Thread.sleep(attempt * 5000L);
+                    }
+                }
+            }
+            System.out.println(String.format("EnsEMBL gene ids looked up: %d of %d",
+                Math.min(batchStart + MAX_ENSEMBL_GENE_IDS_PER_REQUEST, geneIds.size()), geneIds.size()));
+        }
+    }
+
+    /**
+     * Asks EnsEMBL's batch look-up end point whether each gene id is on the primary assembly. A gene id EnsEMBL does
+     * not know comes back as null and is answered false, as a single look-up of it is; a gene id missing from the
+     * response altogether is left out of the map returned.
+     *
+     * @param ensEMBLGeneIds - the gene ids of one request's worth.
+     * @return each answered gene id, and whether it is on the primary assembly.
+     */
+    private Map<String, Boolean> queryEnsEMBLPrimaryAssembly(List<String> ensEMBLGeneIds) throws IOException {
+        HttpURLConnection httpURLConnection =
+            (HttpURLConnection) new URL(ENSEMBL_BATCH_LOOKUP_URL).openConnection();
+        try {
+            httpURLConnection.setConnectTimeout(ENSEMBL_CONNECT_TIMEOUT_MILLIS);
+            httpURLConnection.setReadTimeout(ENSEMBL_BATCH_READ_TIMEOUT_MILLIS);
+            httpURLConnection.setRequestMethod("POST");
+            httpURLConnection.setRequestProperty("Content-Type", "application/json");
+            httpURLConnection.setRequestProperty("Accept", "application/json");
+            httpURLConnection.setDoOutput(true);
+
+            Map<String, List<String>> requestBody = Collections.singletonMap("ids", ensEMBLGeneIds);
+            try (OutputStream requestStream = httpURLConnection.getOutputStream()) {
+                OBJECT_MAPPER.writeValue(requestStream, requestBody);
+            }
+
+            // getInputStream throws an IOException for an error response (a 429 or a 5xx, say), which the caller
+            // retries.
+            JsonNode response;
+            try (InputStream responseStream = httpURLConnection.getInputStream()) {
+                response = OBJECT_MAPPER.readTree(responseStream);
+            }
+
+            Map<String, Boolean> ensEMBLGeneIdToIsOnPrimaryAssembly = new HashMap<>();
+            for (String ensEMBLGeneId : ensEMBLGeneIds) {
+                if (!response.has(ensEMBLGeneId)) {
+                    continue;
+                }
+
+                JsonNode gene = response.get(ensEMBLGeneId);
+                boolean isOnPrimaryAssembly = !gene.isNull() &&
+                    PRIMARY_ASSEMBLY_REGIONS.contains(gene.path("seq_region_name").asText());
+                ensEMBLGeneIdToIsOnPrimaryAssembly.put(ensEMBLGeneId, isOnPrimaryAssembly);
+            }
+            return ensEMBLGeneIdToIsOnPrimaryAssembly;
+        } finally {
+            httpURLConnection.disconnect();
+        }
+    }
+
     private boolean onEnsEMBLPrimaryAssembly(String ensEMBLGeneId) throws InterruptedException {
         Boolean knownAnswer = ensEMBLGeneIdToIsOnPrimaryAssembly.get(ensEMBLGeneId);
         if (knownAnswer != null) {
             return knownAnswer;
         }
 
-        final List<String> primaryAssemblyRegions = Arrays.asList(
-            "1","2","3","4","5","6","7","8","9","10",
-            "11","12","13","14","15","16","17","18","19","20",
-            "21","22","X","Y","MT"
-        );
         final int maxQueryAttempts = 5;
 
         int queryAttempts = 0;
@@ -1250,12 +1407,12 @@ public class Main {
         }
 
         // The capture group is inside the quotes so that the region name is compared with the unquoted values in
-        // primaryAssemblyRegions.
+        // PRIMARY_ASSEMBLY_REGIONS.
         Pattern seqRegionPattern = Pattern.compile("\"seq_region_name\":\"(.*?)\"");
         Matcher seqRegionMatcher = seqRegionPattern.matcher(ensEMBLIdData);
 
         boolean isOnPrimaryAssembly =
-            seqRegionMatcher.find() && primaryAssemblyRegions.contains(seqRegionMatcher.group(1));
+            seqRegionMatcher.find() && PRIMARY_ASSEMBLY_REGIONS.contains(seqRegionMatcher.group(1));
         // Only an answer EnsEMBL gave is kept -- a failure to reach it, above, is not -- so a later entry carrying the
         // same gene id asks again only if EnsEMBL could not be asked this time.
         ensEMBLGeneIdToIsOnPrimaryAssembly.put(ensEMBLGeneId, isOnPrimaryAssembly);
