@@ -54,6 +54,8 @@ public class CuratorToolAPI {
     // The instances behind the indexes the run looks reference gene products and isoforms up in; see
     // fetchInflatedRGPInstances.
     private List<SimpleInstance> inflatedRGPInstances;
+    // The same instances by dbId, for the display name update at the end of the run; see updateDisplayName.
+    private Map<Long, SimpleInstance> dbIdToInflatedRGPInstance;
 
     private ConfigurableApplicationContext applicationContext;
 
@@ -421,6 +423,11 @@ public class CuratorToolAPI {
                 .map(this::inflate)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+
+            dbIdToInflatedRGPInstance = new HashMap<>();
+            for (SimpleInstance inflatedRGPInstance : inflatedRGPInstances) {
+                dbIdToInflatedRGPInstance.put(inflatedRGPInstance.getDbId(), inflatedRGPInstance);
+            }
         }
         return inflatedRGPInstances;
     }
@@ -446,8 +453,8 @@ public class CuratorToolAPI {
      * computes are the ones already stored and nothing is committed.
      */
     public void updateReferenceIsoformDisplayNames() {
-        // The shell instances of the search are enough here, since updateDisplayName inflates what it is given --
-        // fetchUniProtReferenceIsoformInstances would inflate every isoform a second time.
+        // The shell instances of the search are enough here, since updateDisplayName looks up the full instance for
+        // what it is given -- fetchUniProtReferenceIsoformInstances would inflate every isoform a second time.
         for (SimpleInstance referenceIsoformInstance :
              fetchInstancesForClass(ReactomeJavaConstants.ReferenceIsoform, "UniProt")) {
 
@@ -456,10 +463,19 @@ public class CuratorToolAPI {
     }
 
     private void updateDisplayName(SimpleInstance referenceSequence) {
-        // A search returns shell instances -- dbId, displayName and schemaClass only -- so the instance has to be
-        // inflated before there are any attributes to build a display name out of. Committing a shell would also
-        // clear every attribute of the stored instance, since a commit replaces all of them.
-        SimpleInstance inflatedReferenceSequence = inflate(referenceSequence);
+        // A search returns shell instances -- dbId, displayName and schemaClass only -- so the full instance is needed
+        // before there are any attributes to build a display name out of. Committing a shell would also clear every
+        // attribute of the stored instance, since a commit replaces all of them.
+        //
+        // The full instance is taken from the ones inflated at the start of the run, through refresh, which reads it
+        // back only if this run has committed to it since. Inflating each one here instead read every reference gene
+        // product of the database over again, one at a time. An instance this run created is not among them, so it is
+        // inflated as before.
+        fetchInflatedRGPInstances();
+        SimpleInstance indexedReferenceSequence = dbIdToInflatedRGPInstance.get(referenceSequence.getDbId());
+        SimpleInstance inflatedReferenceSequence = indexedReferenceSequence != null ?
+            refresh(indexedReferenceSequence) :
+            inflate(referenceSequence);
         if (inflatedReferenceSequence == null) {
             logger.warn("No instance found for db id " + referenceSequence.getDbId() +
                 " -- skipping its display name update");
