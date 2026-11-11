@@ -41,6 +41,11 @@ public class Utils {
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
     private static final long DEFAULT_RETRY_AFTER_SECONDS = 60;
     private static final int MAX_RATE_LIMITED_ATTEMPTS = 10;
+    private static final long MIN_UNIPROT_REQUEST_INTERVAL_MILLIS = 500;
+    private static final long MAX_UNIPROT_REQUEST_INTERVAL_MILLIS = 10000;
+
+    private static long uniProtRequestIntervalMillis = 0;
+    private static long lastUniProtRequestMillis = 0;
 
     public static String getUpdateDirectory() throws URISyntaxException {
         return Paths.get(Utils.class.getClassLoader().getResource(".").toURI()).toString();
@@ -204,8 +209,14 @@ public class Utils {
      * @return the connection, with a response other than HTTP 429.
      * @throws IOException if the request cannot be made, or UniProt still refuses it after every attempt.
      */
-    private static HttpURLConnection openWaitingOutRateLimit(String urlAsString) throws IOException {
+    private static synchronized HttpURLConnection openWaitingOutRateLimit(String urlAsString) throws IOException {
         for (int attempt = 1; attempt <= MAX_RATE_LIMITED_ATTEMPTS; attempt++) {
+            // Requests are spaced out by an interval that starts at nothing and doubles each time UniProt refuses
+            // one, so that after a few refusals the run settles below UniProt's rate limit rather than running into
+            // it -- and its minute-long wait -- again as soon as each wait is over.
+            sleepMillis(lastUniProtRequestMillis + uniProtRequestIntervalMillis - System.currentTimeMillis());
+            lastUniProtRequestMillis = System.currentTimeMillis();
+
             HttpURLConnection httpURLConnection = (HttpURLConnection) new URL(urlAsString).openConnection();
             httpURLConnection.setRequestMethod("GET");
             if (httpURLConnection.getResponseCode() != HTTP_TOO_MANY_REQUESTS) {
@@ -214,17 +225,27 @@ public class Utils {
 
             long waitSeconds = httpURLConnection.getHeaderFieldLong("Retry-After", DEFAULT_RETRY_AFTER_SECONDS);
             httpURLConnection.disconnect();
-            System.err.println("UniProt rate limit reached; waiting " + waitSeconds + "s before retrying " +
-                urlAsString);
-            try {
-                Thread.sleep(waitSeconds * 1000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted while waiting out UniProt rate limit", e);
-            }
+            uniProtRequestIntervalMillis = Math.min(
+                Math.max(uniProtRequestIntervalMillis * 2, MIN_UNIPROT_REQUEST_INTERVAL_MILLIS),
+                MAX_UNIPROT_REQUEST_INTERVAL_MILLIS);
+            System.err.println("UniProt rate limit reached; waiting " + waitSeconds + "s before retrying, then " +
+                "spacing requests " + uniProtRequestIntervalMillis + "ms apart: " + urlAsString);
+            sleepMillis(waitSeconds * 1000L);
         }
         throw new RuntimeException("UniProt still rate limiting after " + MAX_RATE_LIMITED_ATTEMPTS +
             " attempts: " + urlAsString);
+    }
+
+    private static void sleepMillis(long millis) throws IOException {
+        if (millis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting out UniProt rate limit", e);
+        }
     }
 
     /**
