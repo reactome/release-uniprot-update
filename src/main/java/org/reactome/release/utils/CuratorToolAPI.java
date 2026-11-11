@@ -32,7 +32,11 @@ public class CuratorToolAPI {
 
     private static final Logger logger = LoggerFactory.getLogger(CuratorToolAPI.class);
 
-    private static final int PAGE_SIZE = 500;
+    // Large because every page of a search costs about as much as the whole search: curator-tool-ws collects, counts
+    // and sorts every match before skipping to the page asked for. At 500, reading the ~139,000 UniProt reference gene
+    // products took ~278 pages of ~1-1.4s each, against ~4s for all of them in one page. The pages hold shells only
+    // (dbId, displayName, schemaClass), so a page this size is small in memory.
+    private static final int PAGE_SIZE = 50000;
 
     private static CurationController controller;
     private long personId;
