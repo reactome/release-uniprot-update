@@ -33,6 +33,35 @@ import static org.reactome.release.utils.Utils.getTrEMBLIds;
  *         Created 7/31/2023
  */
 public class Main {
+    // The patterns of matchMultipleValues, compiled once each rather than on every call: the same couple of dozen are
+    // matched against every entry of the SwissProt file.
+    private static final Map<String, Pattern> COMPILED_PATTERNS = new HashMap<>();
+
+    private static final Pattern VERSION_NUMBER_PATTERN = Pattern.compile("(.*)\\.\\d+$");
+
+    // DOTALL so that a <text> body wrapped over several lines is captured whole rather than skipped. It also lets the
+    // gap before <text> span lines, so that gap is guarded against </?comment: a comment type that owns no <text> of
+    // its own (interaction, alternative products) would otherwise reach forward and take the text of a later comment,
+    // filing it under the wrong type.
+    private static final Pattern COMMENTS_PATTERN = Pattern.compile(
+        "<comment type=\"([A-Za-z ]*?)\"(?:(?!</?comment).)*?<text[^>]*>(.*?)</text>",
+        Pattern.MULTILINE | Pattern.DOTALL);
+
+    // [^>]*? keeps the search for the type inside the one <feature> tag. With .*? a feature of any other type -- a
+    // helix, a variant -- began a match that ran on through later features looking for one of these types, and after
+    // the last one, every remaining feature ran to the end of the entry before failing.
+    private static final Pattern CHAINS_PATTERN = Pattern.compile(
+        "<feature[^>]*?type=\"(" +
+        String.join("|", Arrays.asList(
+            "initiator methionine",
+            "chain",
+            "peptide",
+            "propeptide",
+            "signal peptide",
+            "transit peptide"
+        )) +
+        ")\"(.*?)</feature>");
+
     private Path uniprotUpdateDirectoryPath;
 
     // Held as fields, rather than as locals of run, so that close can release them whether or not the run completed:
@@ -202,7 +231,9 @@ public class Main {
                 String id = matchSingleValue(entry, "<name>([A-Za-z0-9_]*)</name>");
 
                 accessions.add(0, id);
-                String description = matchSingleValue(entry, "<protein(.*)</protein>");
+                // Lazy, so that the match stops at the one </protein> rather than running to the end of the entry and
+                // backtracking to it.
+                String description = matchSingleValue(entry, "<protein(.*?)</protein>");
 
                 String fullName = matchSingleValue(description, "<recommendedName>\\s+<fullName>(.*?)</fullName>");
                 if (fullName.isEmpty()) {
@@ -1519,7 +1550,8 @@ public class Main {
     }
 
     private List<String> matchMultipleValues(String entry, String patternString) {
-        Pattern pattern = Pattern.compile(patternString, Pattern.MULTILINE);
+        Pattern pattern = COMPILED_PATTERNS.computeIfAbsent(
+            patternString, unCompiledPattern -> Pattern.compile(unCompiledPattern, Pattern.MULTILINE));
         Matcher matcher = pattern.matcher(entry);
 
         List<String> multipleValues = new ArrayList<>();
@@ -1530,8 +1562,7 @@ public class Main {
     }
 
     private String removeVersionNumber(String identifier) {
-        Pattern identifierWithVersionNumberPattern = Pattern.compile("(.*)\\.\\d+$");
-        Matcher identifierWithVersionNumberMatcher = identifierWithVersionNumberPattern.matcher(identifier);
+        Matcher identifierWithVersionNumberMatcher = VERSION_NUMBER_PATTERN.matcher(identifier);
 
         String identifierWithoutVersionNumber;
 
@@ -1562,14 +1593,7 @@ public class Main {
     }
 
     private List<String> parseComments(String entry) {
-        // DOTALL so that a <text> body wrapped over several lines is captured whole rather than skipped. It also lets
-        // the gap before <text> span lines, so that gap is guarded against </?comment: a comment type that owns no
-        // <text> of its own (interaction, alternative products) would otherwise reach forward and take the text of a
-        // later comment, filing it under the wrong type.
-        Pattern commentsPattern = Pattern.compile(
-            "<comment type=\"([A-Za-z ]*?)\"(?:(?!</?comment).)*?<text[^>]*>(.*?)</text>",
-            Pattern.MULTILINE | Pattern.DOTALL);
-        Matcher commentsMatcher = commentsPattern.matcher(entry);
+        Matcher commentsMatcher = COMMENTS_PATTERN.matcher(entry);
 
         // Joined with a space rather than appended straight onto each other, which ran the end of one comment into the
         // type of the next ("FUNCTION ...SUBUNIT ...").
@@ -1584,17 +1608,7 @@ public class Main {
     }
 
     private List<String> parseChains(String entry) {
-        List<String> featuresTypes = Arrays.asList(
-            "initiator methionine",
-            "chain",
-            "peptide",
-            "propeptide",
-            "signal peptide",
-            "transit peptide"
-        );
-        Pattern chainsPattern =
-            Pattern.compile( "<feature.*?type=\"(" + String.join("|", featuresTypes) + ")\"(.*?)</feature>");
-        Matcher chainsMatcher = chainsPattern.matcher(entry);
+        Matcher chainsMatcher = CHAINS_PATTERN.matcher(entry);
 
         List<String> chains = new ArrayList<>();
         while (chainsMatcher.find()) {
