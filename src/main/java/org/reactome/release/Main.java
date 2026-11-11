@@ -450,10 +450,15 @@ public class Main {
                                         System.out.println(String.format("Existing isoform update: %s\tMaster: %d",
                                             isoformAccession, existingReferenceGeneProductInstance.getDbId()));
 
-                                        isoformInstance.setAttribute(ReactomeJavaConstants.isoformParent,
+                                        // The parent goes through updateInstance with the other values, rather than
+                                        // being set on the instance beforehand, so that a change to it is committed
+                                        // even when nothing else about the isoform has changed.
+                                        Map<String, List<?>> isoformValues = new HashMap<>(values);
+                                        isoformValues.put(ReactomeJavaConstants.isoformParent,
                                             Collections.singletonList(existingReferenceGeneProductInstance));
 
-                                        updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
+                                        updateInstance(
+                                            curatorToolAPI, isoformInstance, isoformValues, sequenceReportWriter);
 
                                         remainingIsoformAccessions.remove(isoformId);
                                     }
