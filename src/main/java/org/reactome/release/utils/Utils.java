@@ -38,6 +38,10 @@ public class Utils {
     private static final Pattern UNIPROT_ACCESSION_PATTERN = Pattern.compile(
         "[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}");
 
+    private static final int HTTP_TOO_MANY_REQUESTS = 429;
+    private static final long DEFAULT_RETRY_AFTER_SECONDS = 60;
+    private static final int MAX_RATE_LIMITED_ATTEMPTS = 10;
+
     public static String getUpdateDirectory() throws URISyntaxException {
         return Paths.get(Utils.class.getClassLoader().getResource(".").toURI()).toString();
     }
@@ -58,8 +62,13 @@ public class Utils {
         // Only accessions of a format UniProt assigns go in a batch: its accessions end point rejects a request
         // carrying one of any other format, and rejects it whole, so a single malformed accession would cost the
         // answer for the hundred it was sent with. The rest fall through to being looked up on their own below.
-        List<String> batchableAccessions =
-            accessions.stream().filter(Utils::isAUniProtAccession).collect(Collectors.toList());
+        // An isoform accession (e.g. Q12981-4) is asked about through the accession of its entry (Q12981), since the
+        // accessions end point takes only the latter.
+        List<String> batchableAccessions = accessions.stream()
+            .map(Utils::getEntryAccession)
+            .filter(Utils::isAUniProtAccession)
+            .distinct()
+            .collect(Collectors.toList());
 
         Map<String, Boolean> accessionToIsTrEMBL = new HashMap<>();
         for (int batchStart = 0; batchStart < batchableAccessions.size(); batchStart += MAX_ACCESSIONS_PER_REQUEST) {
@@ -75,9 +84,20 @@ public class Utils {
             // look-up of it on its own has always given: it was held back from the batches for its format, or the
             // batch carrying it failed, or it is now a secondary accession of some entry and was answered for under
             // that entry's primary accession rather than under itself.
-            boolean isTrEMBL = accessionToIsTrEMBL.containsKey(accession)
-                ? accessionToIsTrEMBL.get(accession)
-                : isTrEMBLId(accession);
+            //
+            // An isoform accession is answered for by its entry only when the entry is reviewed: a look-up of the
+            // isoform on its own then answers that it is not a TrEMBL accession too, whether the entry still has
+            // the isoform or not. Under an unreviewed entry, the isoform is looked up on its own as before.
+            boolean isTrEMBL;
+            if (!accession.equals(getEntryAccession(accession))) {
+                isTrEMBL = Boolean.FALSE.equals(accessionToIsTrEMBL.get(getEntryAccession(accession)))
+                    ? false
+                    : isTrEMBLId(accession);
+            } else {
+                isTrEMBL = accessionToIsTrEMBL.containsKey(accession)
+                    ? accessionToIsTrEMBL.get(accession)
+                    : isTrEMBLId(accession);
+            }
 
             if (isTrEMBL) {
                 tremblIds.add(accession);
@@ -94,9 +114,7 @@ public class Utils {
         // left undrained keeps its connection out of the keep-alive pool, so each accession looked up after it pays
         // to open a new one.
         try {
-            URL uniProtAccessionURL = new URL(uniProtAccessionURLAsString);
-            uniProtAccessionHttpURLConnection = (HttpURLConnection) uniProtAccessionURL.openConnection();
-            uniProtAccessionHttpURLConnection.setRequestMethod("GET");
+            uniProtAccessionHttpURLConnection = openWaitingOutRateLimit(uniProtAccessionURLAsString);
 
             try (BufferedReader uniProtAccessionReader = new BufferedReader(
                 new InputStreamReader(uniProtAccessionHttpURLConnection.getInputStream()))) {
@@ -129,9 +147,7 @@ public class Utils {
 
         HttpURLConnection uniProtAccessionsHttpURLConnection = null;
         try {
-            URL uniProtAccessionsURL = new URL(uniProtAccessionsURLAsString);
-            uniProtAccessionsHttpURLConnection = (HttpURLConnection) uniProtAccessionsURL.openConnection();
-            uniProtAccessionsHttpURLConnection.setRequestMethod("GET");
+            uniProtAccessionsHttpURLConnection = openWaitingOutRateLimit(uniProtAccessionsURLAsString);
 
             try (BufferedReader uniProtAccessionsReader = new BufferedReader(
                 new InputStreamReader(uniProtAccessionsHttpURLConnection.getInputStream()))) {
@@ -177,6 +193,46 @@ public class Utils {
             }
         }
         return accessionToIsTrEMBL;
+    }
+
+    /**
+     * Opens a GET request to UniProt, waiting out and repeating it each time UniProt answers that too many requests
+     * have been made (HTTP 429), for as long as its Retry-After header asks. Such an answer says nothing about the
+     * accession asked about, so it is never let through to be read as one.
+     *
+     * @param urlAsString - the URL to request.
+     * @return the connection, with a response other than HTTP 429.
+     * @throws IOException if the request cannot be made, or UniProt still refuses it after every attempt.
+     */
+    private static HttpURLConnection openWaitingOutRateLimit(String urlAsString) throws IOException {
+        for (int attempt = 1; attempt <= MAX_RATE_LIMITED_ATTEMPTS; attempt++) {
+            HttpURLConnection httpURLConnection = (HttpURLConnection) new URL(urlAsString).openConnection();
+            httpURLConnection.setRequestMethod("GET");
+            if (httpURLConnection.getResponseCode() != HTTP_TOO_MANY_REQUESTS) {
+                return httpURLConnection;
+            }
+
+            long waitSeconds = httpURLConnection.getHeaderFieldLong("Retry-After", DEFAULT_RETRY_AFTER_SECONDS);
+            httpURLConnection.disconnect();
+            System.err.println("UniProt rate limit reached; waiting " + waitSeconds + "s before retrying " +
+                urlAsString);
+            try {
+                Thread.sleep(waitSeconds * 1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while waiting out UniProt rate limit", e);
+            }
+        }
+        throw new RuntimeException("UniProt still rate limiting after " + MAX_RATE_LIMITED_ATTEMPTS +
+            " attempts: " + urlAsString);
+    }
+
+    /**
+     * @param accession - a UniProt accession, of an entry or of one of its isoforms.
+     * @return the accession of the entry, i.e. the accession less any isoform suffix ("-4" of "Q12981-4").
+     */
+    private static String getEntryAccession(String accession) {
+        return accession.replaceFirst("-\\d+$", "");
     }
 
     private static boolean isAUniProtAccession(String potentialUniProtAccession) {
