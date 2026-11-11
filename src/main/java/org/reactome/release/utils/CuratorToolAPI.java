@@ -433,10 +433,29 @@ public class CuratorToolAPI {
     }
 
     public List<SimpleInstance> fetchUniProtReferenceIsoformInstances() {
+        // Loaded here, before the parallel stream, so that its threads never race to load it themselves.
+        fetchInflatedRGPInstances();
         return fetchInstancesForClass(ReactomeJavaConstants.ReferenceIsoform, "UniProt")
             .parallelStream()
-            .map(this::inflate)
+            .map(this::toCurrentInstance)
             .collect(Collectors.toList());
+    }
+
+    /**
+     * Returns the full, up-to-date instance for a shell instance from a search -- one with only a dbId, displayName
+     * and schemaClass.
+     *
+     * It is taken from the reference gene products inflated at the start of the run, through refresh, which reads it
+     * back only if this run has committed to it since. Inflating every one again instead re-read each reference gene
+     * product of the database. An instance this run created is not among them, so it is inflated.
+     *
+     * @param shellInstance - the shell instance from a search.
+     * @return the full instance, or null if there is none.
+     */
+    private SimpleInstance toCurrentInstance(SimpleInstance shellInstance) {
+        fetchInflatedRGPInstances();
+        SimpleInstance indexedInstance = dbIdToInflatedRGPInstance.get(shellInstance.getDbId());
+        return indexedInstance != null ? refresh(indexedInstance) : inflate(shellInstance);
     }
 
     public void updateReferenceGeneProductDisplayNames() {
@@ -454,7 +473,7 @@ public class CuratorToolAPI {
      */
     public void updateReferenceIsoformDisplayNames() {
         // The shell instances of the search are enough here, since updateDisplayName looks up the full instance for
-        // what it is given -- fetchUniProtReferenceIsoformInstances would inflate every isoform a second time.
+        // what it is given.
         for (SimpleInstance referenceIsoformInstance :
              fetchInstancesForClass(ReactomeJavaConstants.ReferenceIsoform, "UniProt")) {
 
@@ -466,16 +485,7 @@ public class CuratorToolAPI {
         // A search returns shell instances -- dbId, displayName and schemaClass only -- so the full instance is needed
         // before there are any attributes to build a display name out of. Committing a shell would also clear every
         // attribute of the stored instance, since a commit replaces all of them.
-        //
-        // The full instance is taken from the ones inflated at the start of the run, through refresh, which reads it
-        // back only if this run has committed to it since. Inflating each one here instead read every reference gene
-        // product of the database over again, one at a time. An instance this run created is not among them, so it is
-        // inflated as before.
-        fetchInflatedRGPInstances();
-        SimpleInstance indexedReferenceSequence = dbIdToInflatedRGPInstance.get(referenceSequence.getDbId());
-        SimpleInstance inflatedReferenceSequence = indexedReferenceSequence != null ?
-            refresh(indexedReferenceSequence) :
-            inflate(referenceSequence);
+        SimpleInstance inflatedReferenceSequence = toCurrentInstance(referenceSequence);
         if (inflatedReferenceSequence == null) {
             logger.warn("No instance found for db id " + referenceSequence.getDbId() +
                 " -- skipping its display name update");
