@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 
 import static org.reactome.release.utils.Utils.emptyListIfNull;
 import static org.reactome.release.utils.Utils.getAttributeValues;
+import static org.reactome.release.utils.Utils.getFirstAttributeValueAsString;
 import static org.reactome.release.utils.Utils.getTrEMBLIds;
 
 /**
@@ -378,14 +379,16 @@ public class Main {
                     newReferenceGeneProductInstance.setAttribute(
                         ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
                     newReferenceGeneProductInstance.setAttribute(ReactomeJavaConstants.identifier, primaryAccession);
-                    long newRGPDbId = curatorToolAPI.commit(newReferenceGeneProductInstance).getDbId();
-                    // updateInstance commits this instance a second time, and the commit above has left the copy
-                    // held here out of date with what is stored (its InstanceEdits in particular), so it is re-read
-                    // before being written again.
-                    newReferenceGeneProductInstance = curatorToolAPI.refresh(newReferenceGeneProductInstance);
-
-                    System.out.println(String.format("New UniProt:%s\t%d", primaryAccession, newRGPDbId));
+                    // Stored with its values in one commit by updateInstance, rather than committed bare first and then
+                    // read back and committed again with its values.
                     updateInstance(curatorToolAPI, newReferenceGeneProductInstance, values, sequenceReportWriter);
+                    // updateInstance commits only on a change, so this makes sure the instance is stored -- its
+                    // isoforms below refer to it -- should the entry have given it no values at all.
+                    if (newReferenceGeneProductInstance.getDbId() == null) {
+                        curatorToolAPI.commit(newReferenceGeneProductInstance);
+                    }
+                    System.out.println(String.format("New UniProt:%s\t%d",
+                        primaryAccession, newReferenceGeneProductInstance.getDbId()));
                     for (String isoformId : isoformIds) {
                         if (!isoformId.contains(primaryAccession)) {
                             // Recorded for the mis-matched isoform clean-up below and not created here, matching how
@@ -474,15 +477,15 @@ public class Main {
                                         isoformId);
                                     isoformInstance.setAttribute(
                                         ReactomeJavaConstants.referenceDatabase, uniProtReferenceDatabase);
-                                    long isoformDbId = curatorToolAPI.commit(isoformInstance).getDbId();
-                                    // As with a new ReferenceGeneProduct above, updateInstance commits this instance
-                                    // a second time, so it is re-read first.
-                                    isoformInstance = curatorToolAPI.refresh(isoformInstance);
-
-                                    System.out.println(String.format("New isoform: %s\t%d\tMaster: %d",
-                                        isoformId, isoformDbId, existingReferenceGeneProductInstance.getDbId()));
-
+                                    // As with a new ReferenceGeneProduct above, stored with its values in one commit.
                                     updateInstance(curatorToolAPI, isoformInstance, values, sequenceReportWriter);
+                                    if (isoformInstance.getDbId() == null) {
+                                        curatorToolAPI.commit(isoformInstance);
+                                    }
+                                    System.out.println(String.format("New isoform: %s\t%d\tMaster: %d",
+                                        isoformId, isoformInstance.getDbId(),
+                                        existingReferenceGeneProductInstance.getDbId()));
+
                                     indexIsoform(isoformAccessionToInstances, isoformId, isoformInstance);
                                 }
                             } else {
@@ -1268,7 +1271,7 @@ public class Main {
             List<?> newValuesForAttribute =
                 values.get(attributeName).stream().filter(Objects::nonNull).collect(Collectors.toList());
             if (newValuesForAttribute.isEmpty()) {
-                System.out.println("WARNING: No new values for " + attributeName + " on " + instance.getDbId() +
+                System.out.println("WARNING: No new values for " + attributeName + " on " + getReportId(instance) +
                     " skipping attribute update");
                 continue;
             }
@@ -1281,8 +1284,8 @@ public class Main {
 
                 if (oldSequenceChangedValue == null || !oldSequenceChangedValue.equals(newSequenceChangedValue)) {
                     instance.setAttribute("isSequenceChanged", newSequenceChangedValue);
-                    System.out.println(String.format("%s (%d) has a new is_sequence_changed value",
-                        instance.getDisplayName(), instance.getDbId()));
+                    System.out.println(String.format("%s (%s) has a new is_sequence_changed value",
+                        instance.getDisplayName(), getReportId(instance)));
                     isInstanceChanged = true;
                 }
             }
@@ -1356,24 +1359,46 @@ public class Main {
 
         for (String oldChainValue : oldChainValues) {
             if (!newChainValues.contains(oldChainValue)) {
-                String logEntry = String.format("%s for %d removed on %s", oldChainValue, instance.getDbId(), date);
+                String logEntry =
+                    String.format("%s for %s removed on %s", oldChainValue, getReportId(instance), date);
                 sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
-                System.out.println("old chain removed for " + instance.getDbId());
+                System.out.println("old chain removed for " + getReportId(instance));
                 chainLogChanged = true;
             }
         }
 
         for (String newChainValue : newChainValues) {
             if (!oldChainValues.contains(newChainValue)) {
-                String logEntry = String.format("%s for %d added on %s", newChainValue, instance.getDbId(), date);
+                String logEntry =
+                    String.format("%s for %s added on %s", newChainValue, getReportId(instance), date);
                 sequenceReportWriter.write(logEntry + " for " + referenceGeneProductDescription + "\n");
 
-                System.out.println("new chain added for " + instance.getDbId());
+                System.out.println("new chain added for " + getReportId(instance));
                 chainLogChanged = true;
             }
         }
         return chainLogChanged;
+    }
+
+    /**
+     * Returns what identifies the instance in the reports and log: its dbId, or, for an instance updateInstance is
+     * about to store for the first time and so has no dbId yet, its accession -- the variant identifier for an
+     * isoform, whose identifier is its parent's accession.
+     *
+     * @param instance - the instance to identify.
+     * @return the dbId, else the accession, as a String; empty if the instance has neither.
+     */
+    private String getReportId(SimpleInstance instance) {
+        if (instance.getDbId() != null) {
+            return instance.getDbId().toString();
+        }
+
+        String accession = getFirstAttributeValueAsString(instance, ReactomeJavaConstants.variantIdentifier);
+        if (accession == null) {
+            accession = getFirstAttributeValueAsString(instance, ReactomeJavaConstants.identifier);
+        }
+        return accession != null ? accession : "";
     }
 
     private boolean hasChains(SimpleInstance instance) {
@@ -1381,7 +1406,7 @@ public class Main {
     }
 
     private String getReferenceGeneProductDescription(SimpleInstance rgpInstance) {
-        String referenceGeneProductDescription = rgpInstance.getDbId() != null ? rgpInstance.getDbId().toString() : "";
+        String referenceGeneProductDescription = getReportId(rgpInstance);
 
         List<Object> rgpNames = getAttributeValues(rgpInstance, ReactomeJavaConstants.name);
         if (!rgpNames.isEmpty()) {
@@ -1404,7 +1429,7 @@ public class Main {
             return false;
         }
 
-        System.out.println(String.format("%s changed for instance %d", attributeName, instance.getDbId()));
+        System.out.println(String.format("%s changed for instance %s", attributeName, getReportId(instance)));
         System.out.println(String.format("old attribute values - %s", String.join(",", currentValuesToCompare)));
         System.out.println(String.format("new attribute values - %s", String.join(",", newValuesToCompare)));
 
