@@ -62,6 +62,14 @@ public class Main {
         )) +
         ")\"(.*?)</feature>");
 
+    private static final int ENSEMBL_CONNECT_TIMEOUT_MILLIS = 10000;
+    private static final int ENSEMBL_READ_TIMEOUT_MILLIS = 20000;
+
+    // Whether each EnsEMBL gene id asked about is on the primary assembly. A gene id found not to be is skipped rather
+    // than given a ReferenceDNASequence, so nothing else records the answer, and without this every entry carrying
+    // the gene id asked EnsEMBL about it again.
+    private final Map<String, Boolean> ensEMBLGeneIdToIsOnPrimaryAssembly = new HashMap<>();
+
     private Path uniprotUpdateDirectoryPath;
 
     // Held as fields, rather than as locals of run, so that close can release them whether or not the run completed:
@@ -1211,6 +1219,11 @@ public class Main {
     }
 
     private boolean onEnsEMBLPrimaryAssembly(String ensEMBLGeneId) throws InterruptedException {
+        Boolean knownAnswer = ensEMBLGeneIdToIsOnPrimaryAssembly.get(ensEMBLGeneId);
+        if (knownAnswer != null) {
+            return knownAnswer;
+        }
+
         final List<String> primaryAssemblyRegions = Arrays.asList(
             "1","2","3","4","5","6","7","8","9","10",
             "11","12","13","14","15","16","17","18","19","20",
@@ -1241,11 +1254,12 @@ public class Main {
         Pattern seqRegionPattern = Pattern.compile("\"seq_region_name\":\"(.*?)\"");
         Matcher seqRegionMatcher = seqRegionPattern.matcher(ensEMBLIdData);
 
-        if (seqRegionMatcher.find()) {
-            String seqRegion = seqRegionMatcher.group(1);
-            return primaryAssemblyRegions.contains(seqRegion);
-        }
-        return false;
+        boolean isOnPrimaryAssembly =
+            seqRegionMatcher.find() && primaryAssemblyRegions.contains(seqRegionMatcher.group(1));
+        // Only an answer EnsEMBL gave is kept -- a failure to reach it, above, is not -- so a later entry carrying the
+        // same gene id asks again only if EnsEMBL could not be asked this time.
+        ensEMBLGeneIdToIsOnPrimaryAssembly.put(ensEMBLGeneId, isOnPrimaryAssembly);
+        return isOnPrimaryAssembly;
     }
 
     private String queryEnsEMBLRESTAPI(String ensEMBLGeneId) throws IOException, InterruptedException {
@@ -1254,6 +1268,11 @@ public class Main {
         );
 
         HttpURLConnection httpURLConnection = (HttpURLConnection) ensemblLookupURL.openConnection();
+        // HttpURLConnection waits forever by default, and EnsEMBL at times stalls for tens of seconds before it
+        // answers -- a request it would answer in half a second when asked again. A timeout throws a
+        // SocketTimeoutException, an IOException, which onEnsEMBLPrimaryAssembly retries.
+        httpURLConnection.setConnectTimeout(ENSEMBL_CONNECT_TIMEOUT_MILLIS);
+        httpURLConnection.setReadTimeout(ENSEMBL_READ_TIMEOUT_MILLIS);
         if (httpURLConnection.getResponseCode() == HttpURLConnection.HTTP_BAD_REQUEST) {
             if (getError(httpURLConnection).contains("not found")) {
                 return "";
