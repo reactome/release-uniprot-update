@@ -789,7 +789,7 @@ public class Main {
                         }
                         reportLineBuilder.append(String.format("|%s\n", rgpAccession));
                         reportLineBuilder.append(String.format(
-                            "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                            "|[https://curator.reactome.org/curatortool/schema_view/instance/%d %d]\n",
                             obsoleteDbId, obsoleteDbId
                             ));
                         reportLineBuilder.append(String.format("||%s\n", String.join(
@@ -880,7 +880,7 @@ public class Main {
                     //reportLineBuilder.append("|\n");
                     reportLineBuilder.append(String.format("||%s\n", rgpAccession));
                     reportLineBuilder.append(String.format(
-                        "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                        "|[https://curator.reactome.org/curatortool/schema_view/instance/%d %d]\n",
                         obsoleteDbId, obsoleteDbId
                     ));
                     reportLineBuilder.append(String.format("||%s\n", String.join(
@@ -939,7 +939,7 @@ public class Main {
                     //reportLineBuilder.append("|\n");
                     reportLineBuilder.append(String.format("||%s\n", isoformAccession));
                     reportLineBuilder.append(String.format(
-                        "|[https://newcurator.reactome.org/curatorgraph/dataSchema/DatabaseObject/instance/%d %d]\n",
+                        "|[https://curator.reactome.org/curatortool/schema_view/instance/%d %d]\n",
                         isoformInstanceDbId, isoformInstanceDbId
                     ));
                     reportLineBuilder.append(String.format("||%s\n", String.join(
