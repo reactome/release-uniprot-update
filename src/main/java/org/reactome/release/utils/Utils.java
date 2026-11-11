@@ -63,6 +63,7 @@ public class Utils {
      */
     public static Set<String> getTrEMBLIds(Collection<String> potentialTrEMBLIds) {
         List<String> accessions = potentialTrEMBLIds.stream().distinct().collect(Collectors.toList());
+        System.out.println("Total potential TrEMBL Ids: " + accessions.size());
 
         // Only accessions of a format UniProt assigns go in a batch: its accessions end point rejects a request
         // carrying one of any other format, and rejects it whole, so a single malformed accession would cost the
@@ -74,6 +75,8 @@ public class Utils {
             .filter(Utils::isAUniProtAccession)
             .distinct()
             .collect(Collectors.toList());
+
+        System.out.println("Total batchable potential TrEMBL Ids: " + batchableAccessions.size());
 
         Map<String, Boolean> accessionToIsTrEMBL = new HashMap<>();
         for (int batchStart = 0; batchStart < batchableAccessions.size(); batchStart += MAX_ACCESSIONS_PER_REQUEST) {
