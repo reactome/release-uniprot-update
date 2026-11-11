@@ -45,6 +45,10 @@ public class Main {
     private SimpleInstance humanEnsEMBLGeneReferenceDatabase;
 
     public static void main(String[] args) throws Exception {
+        // Every line the run prints is stamped with the time, so that the log shows how long each phase takes.
+        System.setOut(timestamped(System.out));
+        System.setErr(timestamped(System.err));
+
         Main main = new Main();
 
         String configFilePathAsString = args.length > 0 ? args[0] : getDefaultConfigFilePath().toString();
@@ -55,6 +59,20 @@ public class Main {
         } finally {
             main.close();
         }
+    }
+
+    private static PrintStream timestamped(PrintStream stream) {
+        return new PrintStream(stream, true) {
+            @Override
+            public void println(String line) {
+                super.println(ZonedDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + " " + line);
+            }
+
+            @Override
+            public void println(Object object) {
+                println(String.valueOf(object));
+            }
+        };
     }
 
     /**
