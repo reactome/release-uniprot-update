@@ -62,8 +62,8 @@
 
 		<jdk.version>11</jdk.version>
 
-		<curator-tool-ws.version>0.0.1-SNAPSHOT</curator-tool-ws.version>
-		<graph-core.version>2.0.13.CT</graph-core.version>
+		<curator-tool-ws.version>1.0.0-SNAPSHOT</curator-tool-ws.version>
+		<graph-core.version>3.0.2.CT</graph-core.version>
 		<httpclient.version>4.5.14</httpclient.version>
 		<mockito.version>4.5.1</mockito.version>
 	</properties>

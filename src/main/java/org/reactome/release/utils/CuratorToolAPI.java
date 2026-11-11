@@ -15,6 +15,9 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
+import javax.servlet.http.HttpServletRequest;
+import java.lang.reflect.Proxy;
+
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -326,7 +329,7 @@ public class CuratorToolAPI {
             1,
             Optional.of(ReactomeJavaConstants.name),
             Optional.of("equal"),
-            Optional.of("ENSEMBL")
+            searchKeysRequest("ENSEMBL")
         );
 
         if (ensEMBLHumanReferenceDatabaseInstances == null || ensEMBLHumanReferenceDatabaseInstances.isEmpty()) {
@@ -524,14 +527,15 @@ public class CuratorToolAPI {
             ? Optional.of(ReactomeJavaConstants.referenceDatabase)
             : Optional.empty();
         Optional<String> operand = filterByReferenceDatabase ? Optional.of("equal") : Optional.empty();
-        Optional<String> searchKey = filterByReferenceDatabase ? Optional.of(referenceDatabaseName) : Optional.empty();
+        HttpServletRequest searchKeys =
+            filterByReferenceDatabase ? searchKeysRequest(referenceDatabaseName) : searchKeysRequest();
 
         List<SimpleInstance> instances = new ArrayList<>();
 
         int skip = 0;
         Integer total = null;
         do {
-            InstanceList page = controller.searchInstances(className, skip, PAGE_SIZE, attribute, operand, searchKey);
+            InstanceList page = controller.searchInstances(className, skip, PAGE_SIZE, attribute, operand, searchKeys);
 
             if (total == null) {
                 total = page.getTotalCount() != null ? page.getTotalCount() : 0;
@@ -555,7 +559,7 @@ public class CuratorToolAPI {
                 PAGE_SIZE,
                 Optional.of(attributeName),
                 Optional.of("equal"),
-                Optional.of(attributeValue)
+                searchKeysRequest(attributeValue)
             );
 
             if (total == null) {
@@ -582,10 +586,40 @@ public class CuratorToolAPI {
             1,
             Optional.of(ReactomeJavaConstants.name),
             Optional.of("equal"),
-            Optional.of(speciesName)
+            searchKeysRequest(speciesName)
         );
 
         return !speciesInstances.isEmpty() ? speciesInstances.getInstances().get(0) : null;
+    }
+
+    /**
+     * curator-tool-ws's searchInstances reads its search keys off the HTTP request, as repeated "searchKeys"
+     * parameters, so that a key containing a comma arrives intact. The controller is called in-process here, with no
+     * request behind the call, so this stands one in that answers that parameter and nothing else. With no keys, the
+     * parameter is absent, which is what makes searchInstances skip the attribute filter.
+     *
+     * @param searchKeys - the search keys, one per attribute searched on.
+     * @return a request carrying only the given search keys.
+     */
+    private static HttpServletRequest searchKeysRequest(String... searchKeys) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+            HttpServletRequest.class.getClassLoader(),
+            new Class<?>[] {HttpServletRequest.class},
+            (proxy, method, args) -> {
+                switch (method.getName()) {
+                    case "getParameterValues":
+                        return "searchKeys".equals(args[0]) && searchKeys.length > 0 ? searchKeys.clone() : null;
+                    case "toString":
+                        return "searchKeys=" + Arrays.toString(searchKeys);
+                    case "hashCode":
+                        return System.identityHashCode(proxy);
+                    case "equals":
+                        return proxy == args[0];
+                    default:
+                        throw new UnsupportedOperationException(
+                            "Stand-in search request does not support " + method.getName());
+                }
+            });
     }
 
     private SimpleInstance createNewSpeciesInstance(String speciesName) throws Exception {
