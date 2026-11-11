@@ -1,6 +1,7 @@
 package org.reactome.release;
 
 import org.gk.model.ReactomeJavaConstants;
+import org.reactome.curation.model.NamedReferrerList;
 import org.reactome.curation.model.SimpleInstance;
 import org.reactome.release.reports.DuplicateAccessionReport;
 import org.reactome.release.reports.Reportable;
@@ -694,9 +695,11 @@ public class Main {
                     List<Long> referrerDbIds = new ArrayList<>();
                     String speciesName = getSpeciesName(obsoleteRGPInstance);
 
-                    List<SimpleInstance> referrers = emptyListIfNull(
-                        curatorToolAPI.getReferrers(obsoleteRGPInstance, ReactomeJavaConstants.referenceEntity)
-                    );
+                    // Fetched once for both the report line and the no-referrer check below.
+                    Collection<NamedReferrerList> allReferrers =
+                        emptyListIfNull(curatorToolAPI.getReferrers(obsoleteRGPInstance));
+                    List<SimpleInstance> referrers =
+                        CuratorToolAPI.getReferrers(allReferrers, ReactomeJavaConstants.referenceEntity);
                     for (SimpleInstance referrer : referrers) {
                         if (referrer.getSchemaClassName().equals(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
                             referrerDbIds.add(referrer.getDbId());
@@ -739,7 +742,7 @@ public class Main {
                         } else {
                             wikiWriter.write(reportLine);
                         }
-                    } else if (hasNoRGPReferrers(curatorToolAPI, obsoleteRGPInstance)) {
+                    } else if (hasNoRGPReferrers(allReferrers)) {
                         // The report lists EWAS referrers only, but the instances collected here are deleted further
                         // down, so an instance is only added once nothing at all refers to it -- the same check the
                         // first round of deletions makes.
@@ -789,8 +792,11 @@ public class Main {
                 List<String> referrerIds = new ArrayList<>();
                 String speciesName = getSpeciesName(obsoleteRGPInstance);
 
+                // Fetched once for both the report line and the no-referrer check below.
+                Collection<NamedReferrerList> allReferrers =
+                    emptyListIfNull(curatorToolAPI.getReferrers(obsoleteRGPInstance));
                 List<SimpleInstance> referrers =
-                    curatorToolAPI.getReferrers(obsoleteRGPInstance, ReactomeJavaConstants.referenceEntity);
+                    CuratorToolAPI.getReferrers(allReferrers, ReactomeJavaConstants.referenceEntity);
                 for (SimpleInstance referrer : referrers) {
                     if (referrer.getSchemaClassName().equals(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
                         SimpleInstance referrerStableIdInstance =
@@ -827,7 +833,7 @@ public class Main {
                     } else {
                         wikiWriter.write(reportLine);
                     }
-                } else if (hasNoRGPReferrers(curatorToolAPI, obsoleteRGPInstance)) {
+                } else if (hasNoRGPReferrers(allReferrers)) {
                     // The report lists EWAS referrers only, but the instances collected here are deleted further
                     // down, so an instance is only added once nothing at all refers to it -- the same check the
                     // first round of deletions makes.
@@ -845,8 +851,11 @@ public class Main {
                 long isoformInstanceDbId = isoformInstance.getDbId();
                 speciesName = getSpeciesName(isoformInstance);
 
+                // Fetched once for both the report line and the no-referrer check below.
+                Collection<NamedReferrerList> allReferrers =
+                    emptyListIfNull(curatorToolAPI.getReferrers(isoformInstance));
                 List<SimpleInstance> referrers =
-                    curatorToolAPI.getReferrers(isoformInstance, ReactomeJavaConstants.referenceEntity);
+                    CuratorToolAPI.getReferrers(allReferrers, ReactomeJavaConstants.referenceEntity);
                 for (SimpleInstance referrer : referrers) {
                     if (referrer.getSchemaClassName().equals(ReactomeJavaConstants.EntityWithAccessionedSequence)) {
                         SimpleInstance referrerStableIdInstance =
@@ -883,7 +892,7 @@ public class Main {
                     } else {
                         wikiWriter.write(reportLine);
                     }
-                } else if (hasNoRGPReferrers(curatorToolAPI, isoformInstance)) {
+                } else if (hasNoRGPReferrers(allReferrers)) {
                     // The report lists EWAS referrers only, but the instances collected here are deleted further
                     // down, so an instance is only added once nothing at all refers to it -- the same check the
                     // first round of deletions makes.
@@ -1455,6 +1464,16 @@ public class Main {
      * @return true if nothing refers to the instance, false if anything does.
      */
     private boolean hasNoRGPReferrers(CuratorToolAPI curatorToolAPI, SimpleInstance rgpInstance) throws Exception {
+        return hasNoRGPReferrers(emptyListIfNull(curatorToolAPI.getReferrers(rgpInstance)));
+    }
+
+    /**
+     * As hasNoRGPReferrers above, for a caller that has already fetched the instance's referrers for another use.
+     *
+     * @param allReferrers - every referrer of the instance, grouped by the attribute referring to it.
+     * @return true if nothing refers to the instance, false if anything does.
+     */
+    private boolean hasNoRGPReferrers(Collection<NamedReferrerList> allReferrers) {
         final List<String> reverseAttributes = Arrays.asList(
             ReactomeJavaConstants.referenceEntity,
             ReactomeJavaConstants.referenceSequence,
@@ -1462,7 +1481,7 @@ public class Main {
             ReactomeJavaConstants.isoformParent
         );
 
-        return emptyListIfNull(curatorToolAPI.getReferrers(rgpInstance))
+        return allReferrers
             .stream()
             .filter(namedReferrers -> reverseAttributes.contains(namedReferrers.getAttributeName()))
             .allMatch(namedReferrers -> emptyListIfNull(namedReferrers.getReferrers()).isEmpty());
@@ -1584,21 +1603,26 @@ public class Main {
         CuratorToolAPI curatorToolAPI, SimpleInstance referenceGeneProduct) throws Exception {
         List<SimpleInstance> allEwasInstances = new ArrayList<>();
 
+        // Fetched once for the three attributes read below: the single-attribute form of getReferrers fetches every
+        // referrer of the instance each time it is called.
+        Collection<NamedReferrerList> allReferrers =
+            emptyListIfNull(curatorToolAPI.getReferrers(referenceGeneProduct));
+
         List<SimpleInstance> referenceEntityEwasInstances =
-            curatorToolAPI.getReferrers(referenceGeneProduct, ReactomeJavaConstants.referenceEntity);
+            CuratorToolAPI.getReferrers(allReferrers, ReactomeJavaConstants.referenceEntity);
         if (referenceEntityEwasInstances != null) {
             allEwasInstances.addAll(referenceEntityEwasInstances);
         }
         List<SimpleInstance> hasModifiedResidueInstances = new ArrayList<>();
         List<SimpleInstance> referenceSequenceModifiedResidues =
-            curatorToolAPI.getReferrers(referenceGeneProduct, ReactomeJavaConstants.referenceSequence);
+            CuratorToolAPI.getReferrers(allReferrers, ReactomeJavaConstants.referenceSequence);
 
         if (referenceSequenceModifiedResidues != null) {
             hasModifiedResidueInstances.addAll(referenceSequenceModifiedResidues);
         }
 
         List<SimpleInstance> secondReferenceSequenceModifiedResidues =
-            curatorToolAPI.getReferrers(referenceGeneProduct, ReactomeJavaConstants.secondReferenceSequence);
+            CuratorToolAPI.getReferrers(allReferrers, ReactomeJavaConstants.secondReferenceSequence);
         if (secondReferenceSequenceModifiedResidues != null) {
             hasModifiedResidueInstances.addAll(secondReferenceSequenceModifiedResidues);
         }

@@ -388,7 +388,21 @@ public class CuratorToolAPI {
     }
 
     public List<SimpleInstance> getReferrers(SimpleInstance instance, String referrerAttributeName) throws Exception {
-        return controller.getReferrers(instance.getDbId())
+        return getReferrers(controller.getReferrers(instance.getDbId()), referrerAttributeName);
+    }
+
+    /**
+     * Returns one attribute's worth of referrers from the referrers already fetched for an instance, so that a caller
+     * wanting several attributes, or the referrers as a whole as well, fetches them only once.
+     *
+     * @param namedReferrerLists - every referrer of an instance, grouped by the attribute referring to it.
+     * @param referrerAttributeName - the attribute whose referrers are wanted.
+     * @return the referrers through that attribute, empty if there are none.
+     */
+    public static List<SimpleInstance> getReferrers(
+        Collection<NamedReferrerList> namedReferrerLists, String referrerAttributeName) {
+
+        return namedReferrerLists
             .stream()
             .filter(g -> referrerAttributeName.equals(g.getAttributeName()))
             .findFirst()
